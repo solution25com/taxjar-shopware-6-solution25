@@ -1,3 +1,24 @@
+# Tax Jar Shopware 6
+
+## Features
+
+- Sellers can define tax rates based on **country, state, or ZIP code ranges**  
+- Option to add a **tax identifier** for each tax rate  
+- Quick and straightforward creation of **tax rules**  
+- Ability to set **priority levels** and control the **execution order** of tax rules  
+
+## Key Highlights
+
+- Supports **US tax calculation**  
+- Handles **international tax calculation** out of the box  
+- Built-in **tax automation** tools  
+- Integration with **TaxJar** for transaction tracking  
+- Simple and **lightweight setup** with minimal configuration required
+
+## Compatibility
+- ✅ Shopware 6.6.x 
+
+
 # Installation Steps
 1) Download zipped file (do NOT unzip it)
 2) Login to Shopware Admin panel

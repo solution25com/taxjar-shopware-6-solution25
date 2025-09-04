@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
+    <card>
+        <title>Tax Jar Settings</title>
+        <title lang="de-DE">#ITGCoTaxJar# Einstellungen</title>
+        <input-field type="bool">
+            <name>active</name>
+            <label>Active</label>
+            <label lang="de-DE">Aktiviert</label>
+            <defaultValue>0</defaultValue>
+        </input-field>
+        <input-field type="bool">
+            <name>debug</name>
+            <label>Debug</label>
+            <label lang="de-DE">Debug</label>
+            <defaultValue>0</defaultValue>
+        </input-field>
+        <input-field type="bool">
+            <name>sandboxMode</name>
+            <label>Sandbox Mode</label>
+            <defaultValue>0</defaultValue>
+            <label lang="de-DE">Sandbox Mode</label>
+        </input-field>
+        <input-field type="text">
+            <name>liveApiToken</name>
+            <label>Live API Token</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="text">
+            <name>sandboxApiToken</name>
+            <label>Sandbox API Token</label>
+            <required>1</required>
+        </input-field>
+        <input-field type="text">
+            <name>defaultProductTaxCode</name>
+            <label>Product Tax Code</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="bool">
+            <name>useGrossPrice</name>
+            <label>Use Product Gross Price For Calculation</label>
+            <defaultValue>0</defaultValue>
+            <label lang="de-DE">Use Product Gross Price For Calculation</label>
+        </input-field>
+        <input-field type="bool">
+            <name>includeShippingCost</name>
+            <label>Include Shipping Cost For Calculation</label>
+            <defaultValue>1</defaultValue>
+            <label lang="de-DE">Include Shipping Cost For Calculation</label>
+        </input-field>
+        <input-field type="text">
+            <name>shippingFromStreet</name>
+            <label>Shipping From Street</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="single-select">
+            <name>orderId</name>
+            <options>
+                <option>
+                    <id>orderId</id>
+                    <name>Order Id</name>
+                    <name lang="de-DE">Order Id</name>
+                </option>
+                <option>
+                    <id>orderNumber</id>
+                    <name>Order number</name>
+                    <name lang="de-DE">Order number</name>
+                </option>
+            </options>
+            <defaultValue>orderId</defaultValue>
+            <label>Select transaction id for tax jar dashboard</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="single-select">
+            <name>shippingFromCountry</name>
+            <options>
+                <option>
+                    <id></id>
+                    <name>Select Country</name>
+                    <name lang="de-DE">Select Country</name>
+                </option>
+                <option>
+                    <id>AT</id>
+                    <name>Austria</name>
+                    <name lang="de-DE">Austria</name>
+                </option>
+                <option>
+                    <id>AU</id>
+                    <name>Australia</name>
+                    <name lang="de-DE">Australia</name>
+                </option>
+                <option>
+                    <id>BE</id>
+                    <name>Belgium</name>
+                    <name lang="de-DE">Belgium</name>
+                </option>
+                <option>
+                    <id>BG</id>
+                    <name>Bulgaria</name>
+                    <name lang="de-DE">Bulgaria</name>
+                </option>
+                <option>
+                    <id>CA</id>
+                    <name>Canada </name>
+                    <name lang="de-DE">Canada</name>
+                </option>
+                <option>
+                    <id>HR</id>
+                    <name>Croatia</name>
+                    <name lang="de-DE">Croatia</name>
+                </option>
+                <option>
+                    <id>CY</id>
+                    <name>Cyprus</name>
+                    <name lang="de-DE">Cyprus</name>
+                </option>
+                <option>
+                    <id>CZ</id>
+                    <name>Czech Republic</name>
+                    <name lang="de-DE">Czech Republic</name>
+                </option>
+                <option>
+                    <id>DK</id>
+                    <name>Denmark</name>
+                    <name lang="de-DE">Denmark</name>
+                </option>
+                <option>
+                    <id>EE</id>
+                    <name>Estonia</name>
+                    <name lang="de-DE">Estonia</name>
+                </option>
+                <option>
+                    <id>FI</id>
+                    <name>Finland</name>
+                    <name lang="de-DE">Finland</name>
+                </option>
+                <option>
+                    <id>FR</id>
+                    <name>France</name>
+                    <name lang="de-DE">France</name>
+                </option>
+                <option>
+                    <id>DE</id>
+                    <name>Germany</name>
+                    <name lang="de-DE">Germany</name>
+                </option>
+                <option>
+                    <id>GR</id>
+                    <name>Greece</name>
+                    <name lang="de-DE">Greece</name>
+                </option>
+                <option>
+                    <id>HU</id>
+                    <name>Hungary</name>
+                    <name lang="de-DE">Hungary</name>
+                </option>
+                <option>
+                    <id>IE</id>
+                    <name>Ireland</name>
+                    <name lang="de-DE">Ireland</name>
+                </option>
+                <option>
+                    <id>IT</id>
+                    <name>Italy</name>
+                    <name lang="de-DE">Italy</name>
+                </option>
+                <option>
+                    <id>LV</id>
+                    <name>Latvia</name>
+                    <name lang="de-DE">Latvia</name>
+                </option>
+                <option>
+                    <id>LT</id>
+                    <name>Lithuania</name>
+                    <name lang="de-DE">Lithuania</name>
+                </option>
+                <option>
+                    <id>LU</id>
+                    <name>Luxembourg</name>
+                    <name lang="de-DE">Luxembourg</name>
+                </option>
+                <option>
+                    <id>MT</id>
+                    <name>Malta</name>
+                    <name lang="de-DE">Malta</name>
+                </option>
+                <option>
+                    <id>NL</id>
+                    <name>Netherlands</name>
+                    <name lang="de-DE">Netherlands</name>
+                </option>
+                <option>
+                    <id>PL</id>
+                    <name>Poland</name>
+                    <name lang="de-DE">Poland</name>
+                </option>
+                <option>
+                    <id>PT</id>
+                    <name>Portugal</name>
+                    <name lang="de-DE">Portugal</name>
+                </option>
+                <option>
+                    <id>RO</id>
+                    <name>Romania</name>
+                    <name lang="de-DE">Romania</name>
+                </option>
+                <option>
+                    <id>SK</id>
+                    <name>Slovakia</name>
+                    <name lang="de-DE">Slovakia</name>
+                </option>
+                <option>
+                    <id>SI</id>
+                    <name>Slovenia</name>
+                    <name lang="de-DE">Slovenia</name>
+                </option>
+                <option>
+                    <id>ES</id>
+                    <name>Spain</name>
+                    <name lang="de-DE">Spain</name>
+                </option>
+                <option>
+                    <id>SE</id>
+                    <name>Sweden</name>
+                    <name lang="de-DE">Sweden</name>
+                </option>
+                <option>
+                    <id>GB</id>
+                    <name>United Kingdom</name>
+                    <name lang="de-DE">United Kingdom</name>
+                </option>
+                <option>
+                    <id>US</id>
+                    <name>United States</name>
+                    <name lang="de-DE">United States</name>
+                </option>
+            </options>
+            <defaultValue>US</defaultValue>
+            <label>Shipping From Country*</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="text">
+            <name>shippingFromState</name>
+            <label>Shipping From State Code</label>
+            <placeholder>Please Provide State Short code. Ex: WI for Wisconsin</placeholder>
+            <required>true</required>
+        </input-field>
+        <input-field type="text">
+            <name>shippingFromCity</name>
+            <label>Shipping From City</label>
+            <required>true</required>
+        </input-field>
+        <input-field type="text">
+            <name>shippingFromZip</name>
+            <label>Shipping From ZipCode</label>
+            <required>true</required>
+        </input-field>
+    </card>
+</config>

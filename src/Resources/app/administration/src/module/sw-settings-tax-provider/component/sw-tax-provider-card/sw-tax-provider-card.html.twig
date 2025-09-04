@@ -1,0 +1,20 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block sw_settings_tax_provider_card %}
+    <sw-container
+        columns="1fr 1fr"
+        gap="0px 32px"
+    >
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block sw_settings_tax_provider_card_type_select %}
+            <sw-entity-single-select
+                v-model:value="taxProvider.id"
+                show-clearable-button
+                :label="$tc('sw-override-settings-tax.taxProvider.cardTitle')"
+                label-property="name"
+                :criteria="taxProviderCriteria"
+                entity="itg_tax_service_provider"
+                @update:value="changeTaxProvider"
+            />
+        {% endblock %}
+    </sw-container>
+{% endblock %}

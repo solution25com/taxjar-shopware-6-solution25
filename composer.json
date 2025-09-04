@@ -1,0 +1,31 @@
+{
+    "name": "itg/tax",
+    "description": "TaxJar Sales Tax Module for Shopware 6",
+    "version": "1.0.3",
+    "type": "shopware-platform-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Shopware"
+        }
+    ],
+    "require": {
+        "shopware/core": "^6.6.0"
+    },
+    "extra": {
+        "shopware-plugin-class": "ITGCoTax\\ITGCoTax",
+        "label": {
+            "de-DE": "TaxJar Sales Tax Module for Shopware 6",
+            "en-GB": "TaxJar Sales Tax Module for Shopware 6"
+        },
+        "description": {
+            "de-DE": "TaxJar Sales Tax Module for Shopware 6",
+            "en-GB": "TaxJar Sales Tax Module for Shopware 6"
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "ITGCoTax\\": "src/"
+        }
+    }
+}

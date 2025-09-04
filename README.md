@@ -28,8 +28,8 @@
 
 #Activation of Extension
 1) Go to the Shopware Root Directory
-2) Run command php bin/console plugin:install --activate tax-jar-shopware-6
-3) Run database migration command php bin/console database:migrate tax-jar-shopware-6 --all, to run the migration script so all required tables and records will get created
+2) Run command php bin/console plugin:install --activate taxjar-shopware-6-solution25
+3) Run database migration command php bin/console database:migrate taxjar-shopware-6-solution25 --all, to run the migration script so all required tables and records will get created
 
 #Configuration of Extension
 1) Go to Admin->Settings->Shop

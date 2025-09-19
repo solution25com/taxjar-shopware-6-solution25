@@ -181,18 +181,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     public function onOrderDeleted(EntityWrittenEvent $event): void
     {
         if (!$this->dispatched) {
-
-          $criteria = new Criteria();
-          $criteria->addFilter(new EqualsFilter('id', $event->getIds()[0]));
-          $order = $this->orderRepository->search($criteria, $event->getContext())->first() ?? null;
-
-          if($order){
-            return;
-          }
-
             try {
                 $this->context = $event->getContext();
                 $method = 'DELETE';
+                $order = $this->getOrder($event->getIds()[0]);
+                if ($order) {
+                  return;
+                }
+
                 foreach ($event->getIds() as $orderId) {
                     $existTransactionId = $this->getExistTransactionId($orderId);
                     $logInfo = $this->getDeleteLogInfo($orderId);

@@ -13,12 +13,14 @@ use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityDeletedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
+use Shopware\Core\System\StateMachine\Event\StateMachineTransitionEvent;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use GuzzleHttp\Client;
@@ -93,6 +95,7 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @var EntityRepository
      */
     private  $stateRepository;
+    private  $orderTransactionRepository;
 
     /**
      * @param SystemConfigService $systemConfigService
@@ -108,7 +111,8 @@ class TransactionSubscriber implements EventSubscriberInterface
         EntityRepository    $orderRepository,
         EntityRepository    $productRepository,
         EntityRepository    $countryRepository,
-        EntityRepository    $stateRepository
+        EntityRepository    $stateRepository,
+        EntityRepository $orderTransactionRepository
     )
     {
         $this->systemConfigService = $systemConfigService;
@@ -117,15 +121,16 @@ class TransactionSubscriber implements EventSubscriberInterface
         $this->productRepository = $productRepository;
         $this->countryRepository = $countryRepository;
         $this->stateRepository = $stateRepository;
+        $this->orderTransactionRepository = $orderTransactionRepository;
     }
 
     public static function getSubscribedEvents(): array
     {
         return [
-            OrderEvents::ORDER_WRITTEN_EVENT => 'onOrderWritten',
+            StateMachineTransitionEvent::class => 'onStateMachineTransition',
             OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
-            'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
-            'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
+//            'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
+//            'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
         ];
     }
 
@@ -133,21 +138,39 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param EntityWrittenEvent $event
      * @return void
      */
-    public function onOrderWritten(EntityWrittenEvent $event): void
+
+
+    public function onStateMachineTransition(StateMachineTransitionEvent $event): void
     {
         $this->context = $event->getContext();
-        if (!$this->dispatched) {
-            $alreadyProcessedOrderId = [];
-            /** @todo Check already massactions for orders */
-            foreach ($event->getIds() as $orderId) {
-                if (!in_array($orderId, $alreadyProcessedOrderId)) {
-                    $this->createUpdateOrderTransaction($orderId, $event);
-                    $alreadyProcessedOrderId[] = $orderId;
-                }
+        $nextState = $event->getToPlace()->getTechnicalName();
+        $fromPlace = $event->getFromPlace()->getTechnicalName();
+        $entityName = $event->getEntityName();
+        $transactionId = $event->getEntityId();
 
-            }
-            $this->dispatched = true;
+        if ($entityName !== "order_transaction") {
+            return;
         }
+
+        $criteria = (new Criteria([$transactionId]))
+            ->addAssociation('paymentMethod')
+            ->addAssociation('order');
+
+        $orderTransaction = $this->orderTransactionRepository->search($criteria, $this->context)->first();
+        $orderId = $orderTransaction->getOrder()->getId();
+
+
+        if($nextState === 'paid'){
+            $this->createUpdateOrderTransaction($orderTransaction->getOrder()->getId(),);;
+        }
+        if($fromPlace == 'paid' && $nextState === 'cancelled'){
+            $this->onOrderStateCancel($event, $orderId);
+
+        }
+        if($fromPlace == 'paid' && $nextState === 'refunded'){
+            $this->onOrderStateChange($event, $orderId);
+        }
+
     }
 
     /**
@@ -158,6 +181,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     public function onOrderDeleted(EntityWrittenEvent $event): void
     {
         if (!$this->dispatched) {
+
+          $criteria = new Criteria();
+          $criteria->addFilter(new EqualsFilter('id', $event->getIds()[0]));
+          $order = $this->orderRepository->search($criteria, $event->getContext())->first() ?? null;
+
+          if($order){
+            return;
+          }
 
             try {
                 $this->context = $event->getContext();
@@ -197,11 +228,10 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param EntityWrittenEvent $event
      * @return void
      */
-    public function onOrderStateCancel(OrderStateMachineStateChangeEvent $event): void
+    public function onOrderStateCancel(StateMachineTransitionEvent $event, string $orderId): void
     {
         try {
             $this->context = $event->getContext();
-            $orderId = $event->getOrderId();
 
             $order = $this->getOrder($orderId);
             if (!$order) {
@@ -240,13 +270,12 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param EntityWrittenEvent $event
      * @return void
      */
-    public function onOrderStateChange(OrderStateMachineStateChangeEvent $event): void
+    public function onOrderStateChange(StateMachineTransitionEvent $event, $orderId): void
     {
         try {
             $this->context = $event->getContext();
             $method = 'POST';
             $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
-            $orderId = $event->getOrderId();
             $order = $this->getOrder($orderId);
 
             if (!$order) {
@@ -287,10 +316,10 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param $event
      * @return void
      */
-    protected function createUpdateOrderTransaction(string $orderId, EntityWrittenEvent $event): void
+    protected function createUpdateOrderTransaction(string $orderId): void
     {
         try {
-            $order = $this->getOrder($orderId);
+            $order = $this->getOrder($orderId);;
             if (!$order) {
                 return;
             }
@@ -298,13 +327,6 @@ class TransactionSubscriber implements EventSubscriberInterface
             $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders';
             $method = 'POST';
             $requestType = self::ORDER_CREATE_REQUEST_TYPE;
-
-            if ($this->getOperation($event) === 'update') {
-                $method = 'PUT';
-                $taxJarOrderId = self::PREFIX . $order->getOrderNumber();
-                $apiEndpointUrl .= '/' . $taxJarOrderId;
-                $requestType = self::ORDER_UPDATE_REQUEST_TYPE;
-            }
 
             $this->salesChannelId = $order->getSalesChannelId();
 
@@ -339,7 +361,6 @@ class TransactionSubscriber implements EventSubscriberInterface
             return;
         }
     }
-
 
     /**
      * @param $countryId
@@ -529,7 +550,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         $orderTotalAmount = $amounts['orderTotalAmount'];
         $orderTaxAmount = $amounts['orderTaxAmount'];
 
-        $lineItems = $this->getLineItems($order);
+        $lineItems = $this->getLineItems($order);;
 
         $shippingAddress = $order->getBillingAddress();
         $billingAddress = $order->getBillingAddress();

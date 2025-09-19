@@ -48,6 +48,7 @@
             <argument type="service" id="product.repository" />
             <argument type="service" id="country.repository" />
             <argument type="service" id="country_state.repository" />
+            <argument type="service" id="order_transaction.repository" />
         </service>
         <service id="ITGCoTax\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />

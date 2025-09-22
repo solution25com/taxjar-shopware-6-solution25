@@ -161,7 +161,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
 
         if($nextState === 'paid'){
-            $this->createUpdateOrderTransaction($orderTransaction->getOrder()->getId(),);;
+            $this->createUpdateOrderTransaction($orderTransaction->getOrder()->getId());
         }
         if($fromPlace == 'paid' && $nextState === 'cancelled'){
             $this->onOrderStateCancel($event, $orderId);

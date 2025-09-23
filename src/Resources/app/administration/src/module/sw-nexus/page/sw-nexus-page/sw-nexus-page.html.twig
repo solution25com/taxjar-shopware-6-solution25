@@ -1,0 +1,35 @@
+<sw-page>
+  <template #content>
+
+    <sw-data-grid
+            :dataSource="regions"
+            :columns="columns"
+            :showSelection="false"
+            :showActions="false">
+    </sw-data-grid>
+
+    <div class="nexus-status-wrapper">
+
+      <!-- Success / Connected -->
+      <div v-if="regions.length > 0" class="success-nexus-alert">
+        Nexus is connected
+      </div>
+
+      <!-- Danger / Not Connected -->
+      <div v-else class="danger-nexus-alert">
+        No nexus connected
+      </div>
+
+      <!-- Only show this if no nexus connected -->
+      <p v-if="regions.length === 0" class="nexus-instruction">
+        Connect a nexus using TaxJar
+        <a href="https://app.taxjar.com/dashboard" target="_blank" rel="noopener noreferrer">
+          dashboard
+        </a>
+      </p>
+
+
+    </div>
+
+  </template>
+</sw-page>

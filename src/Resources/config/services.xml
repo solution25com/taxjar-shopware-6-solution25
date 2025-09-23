@@ -58,5 +58,11 @@
             <argument type="service" id="itg_taxjar_log.repository" />
             <tag name="messenger.message_handler" />
         </service>
+
+        <service id="ITGCoTax\Core\Api\Nexus\TaxJarNexusApiController" public="true">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>        </service>
     </services>
 </container>

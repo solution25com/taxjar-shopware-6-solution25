@@ -1,0 +1,17 @@
+{
+    "sw-nexus-module": {
+        "general": {
+            "mainMenuItemList": "Nexus Module",
+            "descriptionTextModule": "Manage TaxJar Nexus Connections"
+        },
+        "list": {
+            "titleColumn": "Region",
+            "countryColumn": "Country",
+            "regionColumn": "Region",
+            "regionCodeColumn": "Region Code",
+            "statusConnected": "Nexus is connected",
+            "statusNotConnected": "No nexus connected",
+            "instruction": "Connect a nexus using TaxJar dashboard"
+        }
+    }
+}

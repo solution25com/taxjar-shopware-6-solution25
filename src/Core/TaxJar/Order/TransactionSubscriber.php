@@ -5,15 +5,12 @@ namespace ITGCoTax\Core\TaxJar\Order;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
 use ITGCoTax\Core\Content\TaxLog\TaxLogEntity;
-use ITGCoTax\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
-use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
-use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityDeletedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
@@ -129,8 +126,8 @@ class TransactionSubscriber implements EventSubscriberInterface
         return [
             StateMachineTransitionEvent::class => 'onStateMachineTransition',
             OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
-//            'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
-//            'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
+            'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
+            'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
         ];
     }
 
@@ -184,6 +181,12 @@ class TransactionSubscriber implements EventSubscriberInterface
             try {
                 $this->context = $event->getContext();
                 $method = 'DELETE';
+
+                // The "delete order" event is triggered not only when an order is actually deleted,
+                // but also when navigating back from the order detail page to the list of orders in admin.
+                // Since this same event is used for actual deletion, we need to check if the order exists.
+                // If $order exists, it means this is just a page navigation, so we skip the deletion logic.
+                // If $order does NOT exist, it means the order was actually deleted, and we continue.
                 $order = $this->getOrder($event->getIds()[0]);
                 if ($order) {
                   return;

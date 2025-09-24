@@ -1,14 +1,15 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Core\TaxJar\Order;
+namespace solu1TaxJar\Core\TaxJar\Order;
 
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
-use ITGCoTax\Core\Content\TaxLog\TaxLogEntity;
+use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
+use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
@@ -132,10 +133,9 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param EntityWrittenEvent $event
+     * @param StateMachineTransitionEvent $event
      * @return void
      */
-
 
     public function onStateMachineTransition(StateMachineTransitionEvent $event): void
     {
@@ -187,6 +187,10 @@ class TransactionSubscriber implements EventSubscriberInterface
                 // Since this same event is used for actual deletion, we need to check if the order exists.
                 // If $order exists, it means this is just a page navigation, so we skip the deletion logic.
                 // If $order does NOT exist, it means the order was actually deleted, and we continue.
+
+                if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
+                  return;
+                }
                 $order = $this->getOrder($event->getIds()[0]);
                 if ($order) {
                   return;
@@ -224,7 +228,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param EntityWrittenEvent $event
+     * @param StateMachineTransitionEvent $event
      * @return void
      */
     public function onOrderStateCancel(StateMachineTransitionEvent $event, string $orderId): void
@@ -266,7 +270,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param EntityWrittenEvent $event
+     * @param StateMachineTransitionEvent $event
      * @return void
      */
     public function onOrderStateChange(StateMachineTransitionEvent $event, $orderId): void
@@ -351,9 +355,8 @@ class TransactionSubscriber implements EventSubscriberInterface
                 $logInfo['response'] = $response;
                 $this->logRequestResponse($logInfo);
             } catch (GuzzleException $e) {
-                $response = $e->getResponse();
-                $responseBodyAsString = $response->getBody()->getContents();
-                $logInfo['response'] = $responseBodyAsString;
+                $response = $e->getMessage();
+                $logInfo['response'] = $response;
                 $this->logRequestResponse($logInfo);
             }
         } catch (\Exception $e) {
@@ -382,13 +385,12 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param $stateId
      * @return mixed|null
      */
-    protected function getCountryState($stateId)
+    protected function getCountryState($stateId): mixed
     {
         /** @var CountryStateEntity $country */
-        $state = $this->stateRepository
-            ->search(new Criteria([$stateId]), $this->context)
-            ->get($stateId);
-        return $state;
+      return $this->stateRepository
+          ->search(new Criteria([$stateId]), $this->context)
+          ->get($stateId);
     }
 
     /**
@@ -437,15 +439,15 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
     protected function _isActive(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.active', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
     }
 
     protected function _taxJarApiToken()
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
+            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
+        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
     }
 
     /**
@@ -464,20 +466,20 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
     protected function _isSandboxMode(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
 
     /**
-     * @return int
+     * @return string
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('ITGCoTax.setting.defaultProductTaxCode', $this->salesChannelId);
+        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
     }
 
     private function getTransactionId(OrderEntity $order): string
     {
-        $configOrderId = $this->systemConfigService->get('ITGCoTax.setting.orderId');
+        $configOrderId = $this->systemConfigService->get('solu1TaxJar.setting.orderId');
 
         if ($configOrderId === 'orderId') {
             $orderId = $order->getId();
@@ -663,11 +665,11 @@ class TransactionSubscriber implements EventSubscriberInterface
     private function getShippingOriginAddress(): array
     {
         return [
-            "from_country" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
+            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
+            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
+            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
+            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
         ];
     }
 }

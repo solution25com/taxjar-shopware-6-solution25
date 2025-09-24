@@ -1,9 +1,7 @@
-// src/Resources/app/administration/src/core/service/api/nexus-api.services.js
-
 const { Application } = Shopware;
 const ApiService = Shopware.Classes.ApiService;
 
-class NexusApiService extends ApiService {
+export default class NexusApiService extends ApiService {
     constructor(httpClient, loginService, apiEndpoint = 'nexus') {
         super(httpClient, loginService, apiEndpoint);
     }
@@ -24,5 +22,3 @@ Application.addServiceProvider('nexusApiService', (container) => {
         container.loginService
     );
 });
-
-export default NexusApiService;

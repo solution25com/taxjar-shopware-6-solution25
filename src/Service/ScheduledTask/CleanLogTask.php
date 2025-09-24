@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Service\ScheduledTask;
+namespace solu1TaxJar\Service\ScheduledTask;
 
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTask;
 

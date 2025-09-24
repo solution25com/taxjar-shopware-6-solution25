@@ -6,7 +6,7 @@
  */
 declare(strict_types=1);
 
-namespace ITGCoTax\Core\Content\TaxProvider;
+namespace solu1TaxJar\Core\Content\TaxProvider;
 
 use Shopware\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\CreatedAtField;

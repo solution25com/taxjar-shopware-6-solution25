@@ -1,10 +1,9 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Core\Api\Nexus;
+namespace solu1TaxJar\Core\Api\Nexus;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Psr7\Request as GRequest;
-use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -14,7 +13,6 @@ use Symfony\Component\Routing\Annotation\Route;
 class TaxJarNexusApiController extends AbstractController
 {
   private SystemConfigService $systemConfigService;
-  private ?string $salesChannelId = null;
   public const LIVE_API_URL = 'https://api.taxjar.com/v2';
   public const SANDBOX_API_URL = 'https://api.sandbox.taxjar.com/v2';
 
@@ -69,13 +67,13 @@ class TaxJarNexusApiController extends AbstractController
   protected function _taxJarApiToken()
   {
     if ($this->_isSandboxMode()) {
-      return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
+      return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken');
     }
-    return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
+    return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken');
   }
   protected function _isSandboxMode(): int
   {
-    return (int)$this->systemConfigService->get('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
+    return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode');
   }
 
   protected function _getApiEndPoint(): string

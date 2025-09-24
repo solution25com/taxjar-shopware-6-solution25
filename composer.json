@@ -1,6 +1,6 @@
 {
-    "name": "itg/tax",
-    "description": "TaxJar Sales Tax Module for Shopware 6",
+    "name": "solution25/taxJar",
+    "description": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries.",
     "version": "1.0.3",
     "type": "shopware-platform-plugin",
     "license": "MIT",
@@ -13,19 +13,27 @@
         "shopware/core": "^6.6.0"
     },
     "extra": {
-        "shopware-plugin-class": "ITGCoTax\\ITGCoTax",
+        "shopware-plugin-class": "solu1TaxJar\\solu1TaxJar",
         "label": {
-            "de-DE": "TaxJar Sales Tax Module for Shopware 6",
+            "de-DE": "TaxJar Sales Tax Modul für Shopware 6",
             "en-GB": "TaxJar Sales Tax Module for Shopware 6"
         },
         "description": {
-            "de-DE": "TaxJar Sales Tax Module for Shopware 6",
-            "en-GB": "TaxJar Sales Tax Module for Shopware 6"
+            "de-DE": "TaxJar Sales Tax Modul für Shopware 6, das Steuerberechnungen automatisiert, Nexus-Regionen unterstützt, Transaktionen protokolliert und die Einhaltung der Vorschriften in verschiedenen Bundesstaaten und Ländern gewährleistet.",
+            "en-GB": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries."
+        },
+        "manufacturerLink": {
+            "de-DE": "https://solution25.com/",
+            "en-GB": "https://solution25.com/en/home_en/"
+        },
+        "supportLink": {
+            "de-DE": "https://solution25.com/",
+            "en-GB": "https://solution25.com/en/home_en/"
         }
     },
     "autoload": {
         "psr-4": {
-            "ITGCoTax\\": "src/"
+            "solu1TaxJar\\": "src/"
         }
     }
 }

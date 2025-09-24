@@ -2,19 +2,11 @@
 
 const { Module } = Shopware;
 import './page/sw-nexus-page';
-import enGB from './snippet/en-GB';
-import deDE from './snippet/de-DE';
-
 
 Module.register('sw-nexus-module', {
     type: 'plugin',
     title: 'sw-nexus-module.general.mainMenuItemList',
     description: 'sw-nexus-module.general.descriptionTextModule',
-    snippets: {
-        'en-GB': enGB,
-        'de-De': deDE
-    },
-
     routes: {
         list: {
             component: 'sw-nexus-page',
@@ -24,16 +16,6 @@ Module.register('sw-nexus-module', {
             }
         }
     },
-
-    settingsItem: [
-        {
-            name: 'sw-nexus-module-menu',
-            label: 'sw-nexus-module.general.mainMenuItemList',
-            to: 'sw.nexus.module.list',
-            group: 'plugins',
-            icon: 'regular-cog'
-        }
-    ],
 
     navigation: [
         {

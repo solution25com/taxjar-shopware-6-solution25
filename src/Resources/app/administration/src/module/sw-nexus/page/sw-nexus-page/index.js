@@ -10,6 +10,7 @@ Component.register('sw-nexus-page', {
 
     data() {
         return {
+            isLoading: false,
             regions: [],
             columns: [
                 { property: 'country', label: 'Country' },
@@ -22,6 +23,7 @@ Component.register('sw-nexus-page', {
 
     methods: {
         getData() {
+            this.isLoading = true;
             this.nexusApiService.getStates()
                 .then(response => {
                     if (response && response.data && response.data.regions) {
@@ -29,6 +31,7 @@ Component.register('sw-nexus-page', {
                             id: index,
                             ...item
                         }));
+                        this.isLoading = false;
                     } else {
                         this.regions = [];
                     }

@@ -6,7 +6,7 @@
  */
 declare(strict_types=1);
 
-namespace ITGCoTax\Migration;
+namespace solu1TaxJar\Migration;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
@@ -59,7 +59,7 @@ SQL;
     {
         return [
             'name' => 'TaxJar',
-            'base_class' => '\ITGCoTax\Core\TaxJar\Calculator',
+            'base_class' => '\solu1TaxJar\Core\TaxJar\Calculator',
         ];
     }
 

@@ -6,7 +6,7 @@
  */
 declare(strict_types=1);
 
-namespace ITGCoTax\Core\Content\Extension;
+namespace solu1TaxJar\Core\Content\Extension;
 
 use Shopware\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\CreatedAtField;
@@ -18,7 +18,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\Field\OneToOneAssociationField;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\UpdatedAtField;
 use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
 use Shopware\Core\System\Tax\TaxDefinition;
-use ITGCoTax\Core\Content\TaxProvider\TaxProviderDefinition;
+use solu1TaxJar\Core\Content\TaxProvider\TaxProviderDefinition;
 
 class TaxExtensionDefinition extends EntityDefinition
 {

@@ -6,7 +6,7 @@
  */
 declare(strict_types=1);
 
-namespace ITGCoTax\Core\Content\TaxLog;
+namespace solu1TaxJar\Core\Content\TaxLog;
 
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCustomFieldsTrait;

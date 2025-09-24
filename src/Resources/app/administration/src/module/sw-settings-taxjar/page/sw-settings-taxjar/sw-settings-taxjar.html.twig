@@ -1,0 +1,94 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block sw_settings_taxjar_index %}
+    <sw-page class="sw-settings-taxjar">
+
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block sw_settings_taxjar_search_bar %}
+            <template #search-bar>
+                <sw-search-bar />
+            </template>
+        {% endblock %}
+
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block sw_settings_taxjar_smart_bar_header %}
+            <template #smart-bar-header>
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block sw_settings_taxjar_smart_bar_header_title %}
+                    <h2>
+                        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                        {% block sw_settings_taxjar_smart_bar_header_title_text %}
+                            {{ $tc('sw-settings.index.title') }}
+                            <sw-icon
+                                    name="regular-chevron-right-xs"
+                                    small
+                            />
+                            {{ $tc('sw-settings-taxjar.general.textHeadline') }}
+                        {% endblock %}
+                    </h2>
+                {% endblock %}
+            </template>
+        {% endblock %}
+
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block sw_settings_taxjar_smart_bar_actions %}
+            <template #smart-bar-actions>
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block sw_settings_tax_actions_save %}
+                    <sw-button-process
+                            class="sw-settings-login-registration__save-action"
+                            :is-loading="isLoading || systemConfigLoading"
+                            :process-success="isSaveSuccessful"
+                            :disabled="isLoading || systemConfigLoading"
+                            variant="primary"
+                            @update:process-success="saveFinish"
+                            @click="onSave"
+                    >
+                        {{ $tc('sw-settings-taxjar.general.buttonSave') }}
+                    </sw-button-process>
+                {% endblock %}
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block sw_settings_tax_actions_log %}
+                    <sw-button
+                            class="sw-settings-tax__log-action"
+                            variant="primary"
+                            :is-loading="isLoading"
+                            :disabled="isLoading"
+                            :router-link="{ name: 'sw.tax.log.module.list' }"
+                    >
+                        {{ $tc('sw-settings-taxjar.general.buttonLog') }}
+                    </sw-button>
+                {% endblock %}
+
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block sw_settings_test_tax_jar_connection %}
+                    <sw-button
+                            class="sw-settings-tax-connection__test-action"
+                            variant="primary"
+                            :is-loading="isLoading"
+                            :disabled="isLoading"
+                            @click="testConnection"
+                    >
+                        {{ $tc('sw-settings-taxjar.general.testButtonLabel') }}
+                    </sw-button>
+                {% endblock %}
+            </template>
+        {% endblock %}
+
+
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block sw_settings_taxjar_content %}
+            <template #content>
+                <sw-card-view>
+                    <sw-skeleton v-if="isLoading" />
+                    <sw-system-config
+                            v-show="!isLoading"
+                            ref="systemConfig"
+                            sales-channel-switchable
+                            domain="solu1TaxJar.setting"
+                            @loading-changed="onLoadingChanged"
+                    />
+                </sw-card-view>
+            </template>
+        {% endblock %}
+    </sw-page>
+{% endblock %}

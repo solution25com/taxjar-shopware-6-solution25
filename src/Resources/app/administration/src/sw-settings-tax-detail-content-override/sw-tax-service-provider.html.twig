@@ -1,0 +1,23 @@
+<!-- <plugin root>/src/Resources/app/administration/src/sw-settings-tax-detail-content-override/sw-tax-service-provider.html.twig -->
+{% block sw_settings_tax_detail_content_card %}
+    {% parent %}
+    <div class="sw-card">
+        <div class="sw-card__content">
+            <div class="sw-container"
+                 style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0px 30px; place-items: stretch;">
+                <div class="sw-field sw-block-field sw-contextual-field sw-field--text is--disabled sw-field--default">
+                    {% block sw_settings_tax_service_provider_card %}
+                        <sw-tax-provider-card
+                            v-if="tax.id"
+                            :disabled="!taxId"
+                            class="sw-settings-tax-detail__tax-rule-grid"
+                            :tax="tax"
+                            :is-loading="isLoading"
+                        />
+                    {% endblock %}
+                </div>
+            </div>
+        </div>
+        <div></div>
+    </div>
+{% endblock %}

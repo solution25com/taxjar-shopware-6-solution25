@@ -1,0 +1,19 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block sw_filter_panel_item %}
+    <div
+            v-for="filter in listFilters"
+            :id="filter.name"
+            :key="filter.name"
+            class="sw-filter-panel__item"
+    >
+        <div v-if="false"></div>
+        <sw-text-filter
+                v-else-if="showFilter(filter, 'text-filter')"
+                :filter="filter"
+                :active="!!activeFilters[filter.name]"
+                @filter-update="updateFilter"
+                @filter-reset="resetFilter"
+        />
+    </div>
+    {% parent %}
+{% endblock %}

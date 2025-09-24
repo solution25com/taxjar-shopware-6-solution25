@@ -1,0 +1,84 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block tax_jar_log_module_list %}
+    <sw-page>
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block tax_jar_log_smart_bar_header %}
+            <template #smart-bar-header>
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block tax_jar_log_list_smart_bar_header_title %}
+                    <h2>
+                        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                        {% block emizen_module_list_smart_bar_header_title_text %}
+                            {{ $tc('sw-settings.index.title') }}
+                            <sw-icon name="small-arrow-medium-right" small></sw-icon>
+                            {{ $t('sw-tax-log-module.general.mainMenuItemList') }}
+                        {% endblock %}
+
+                        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                        {% block emizen_module_list_smart_bar_header_amount %}
+                            <span v-if="total" class="sw-page__smart-bar-amount">
+                                ({{total}})
+                            </span>
+                        {% endblock %}
+                    </h2>
+                {% endblock %}
+            </template>
+        {% endblock %}
+        <template #smart-bar-actions>
+            <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+            {% block sw_settings_test_tax_jar_connection %}
+                <sw-button
+                    class="sw-settings-tax-connection__test-action"
+                    variant="primary"
+                    :is-loading="isLoading"
+                    :disabled="isLoading"
+                    @click="exportLog"
+                >
+                    {{ $tc('sw-tax-log-module.export.buttonLabel') }}
+                </sw-button>
+            {% endblock %}
+        </template>
+        <template #content>
+            <sw-entity-listing
+                :items="taxJarLogCollection"
+                :repository="getRepository"
+                :showSelection="false"
+                :columns="getColumns">
+                <template slot="column-request" slot-scope="{ item }">
+                    {{item.request}}
+                </template>
+                <template slot="column-response" slot-scope="{ item }">
+                    {{item.response}}
+                </template>
+            </sw-entity-listing>
+        </template>
+
+        <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+        {% block wk_test_list_sidebar %}
+            <template #sidebar>
+                <sw-sidebar class="sw-order-list__sidebar">
+                    <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                    {% block tax_jar_log_list_sidebar_refresh %}
+                        <sw-sidebar-item
+                            icon="regular-undo"
+                            :title="$tc('sw-order.list.titleSidebarItemRefresh')"
+                            @click="onRefresh">
+                        </sw-sidebar-item>
+                    {% endblock %}
+
+                    <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                    {% block tax_jar_log_list_sidebar_filter %}
+                        <sw-sidebar-filter-panel
+                            entity="taxjar_log"
+                            :storeKey="storeKey"
+                            :filters="listFilters"
+                            :defaults="defaultFilters"
+                            :activeFilterNumber="activeFilterNumber"
+                            @criteria-changed="updateCriteria">
+                        </sw-sidebar-filter-panel>
+                    {% endblock %}
+                </sw-sidebar>
+            </template>
+        {% endblock %}
+    </sw-page>
+{% endblock %}

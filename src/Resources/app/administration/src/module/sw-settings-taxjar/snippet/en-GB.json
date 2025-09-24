@@ -1,0 +1,14 @@
+{
+    "sw-settings-taxjar": {
+        "general": {
+            "textHeadline": "Tax service provider settings",
+            "buttonSave": "Save",
+            "buttonLog": "TaxJar Log",
+            "testButtonLabel": "Test Connection"
+        },
+        "testConnection": {
+            "error": "Please provide valid API token",
+            "success": "TaxJar successfully Connected"
+        }
+    }
+}

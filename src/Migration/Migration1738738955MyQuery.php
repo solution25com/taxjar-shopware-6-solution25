@@ -17,6 +17,6 @@ class Migration1738738955MyQuery extends MigrationStep
 
     public function update(Connection $connection): void
     {
-//        $connection->executeStatement("ALTER TABLE `itg_taxjar_log` ADD `order_id` TEXT NULL AFTER `order_number`;");
+//        $connection->executeStatement("ALTER TABLE `s25_taxjar_log` ADD `order_id` TEXT NULL AFTER `order_number`;");
     }
 }

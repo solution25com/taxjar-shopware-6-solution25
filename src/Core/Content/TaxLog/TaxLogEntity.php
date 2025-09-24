@@ -1,8 +1,4 @@
 <?php
-/**
- * See COPYING.txt for license details.
- * @author: Sushil Zore <sushil.zore@itgcommerce.com>
- */
 declare(strict_types=1);
 
 namespace solu1TaxJar\Core\Content\TaxLog;

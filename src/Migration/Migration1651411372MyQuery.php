@@ -1,8 +1,4 @@
 <?php
-/**
- * See COPYING.txt for license details.
-
- */
 declare(strict_types=1);
 
 namespace solu1TaxJar\Migration;
@@ -21,7 +17,7 @@ class Migration1651411372MyQuery extends MigrationStep
     {
        $query = /** @lang SQL */
             <<<SQL
-          CREATE TABLE IF NOT EXISTS `itg_tax_provider` (
+          CREATE TABLE IF NOT EXISTS `s25_tax_provider` (
           `id` binary(16) NOT NULL,
           `tax_id` binary(16) NOT NULL,
           `provider_id` binary(16) NOT NULL,
@@ -37,6 +33,6 @@ SQL;
 
     public function updateDestructive(Connection $connection): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS `itg_tax_provider`');
+        $connection->executeStatement('DROP TABLE IF EXISTS `s25_tax_provider`');
     }
 }

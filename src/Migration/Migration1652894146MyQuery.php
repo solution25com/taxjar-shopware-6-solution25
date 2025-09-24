@@ -16,7 +16,7 @@ class Migration1652894146MyQuery extends MigrationStep
     {
         $query = /** @lang SQL */
             <<<SQL
-          CREATE TABLE IF NOT EXISTS `itg_taxjar_log` (
+          CREATE TABLE IF NOT EXISTS `s25_taxjar_log` (
           `id` binary(16) NOT NULL,
           `request_key` text,
           `request` text,
@@ -39,6 +39,6 @@ SQL;
 
     public function updateDestructive(Connection $connection): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS `itg_taxjar_log`');
+        $connection->executeStatement('DROP TABLE IF EXISTS `s25_taxjar_log`');
     }
 }

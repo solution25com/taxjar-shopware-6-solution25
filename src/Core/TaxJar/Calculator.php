@@ -17,7 +17,7 @@ use Psr\Cache\CacheItemPoolInterface;
 
 class Calculator
 {
-    private const CACHE_ID = 'itg_tax_jar_response_';
+    private const CACHE_ID = 's25_tax_jar_response_';
 
     public const REQUEST_TYPE = 'Tax Calculation';
 

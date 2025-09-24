@@ -10,7 +10,7 @@ class CleanLogTask extends ScheduledTask
 
     public static function getTaskName(): string
     {
-        return 'itgcotax.clear_log_task';
+        return 's25cotax.clear_log_task';
     }
 
     /**

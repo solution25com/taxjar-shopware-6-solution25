@@ -1,8 +1,4 @@
 <?php
-/**
- * See COPYING.txt for license details.
-
- */
 declare(strict_types=1);
 
 namespace solu1TaxJar\Core\Content\TaxProvider;
@@ -22,7 +18,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
 
 class TaxProviderDefinition extends EntityDefinition
 {
-    public const ENTITY_NAME = 'itg_tax_service_provider';
+    public const ENTITY_NAME = 's25_tax_service_provider';
 
     public function getEntityName(): string
     {

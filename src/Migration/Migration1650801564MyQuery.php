@@ -1,8 +1,5 @@
 <?php
-/**
- * See COPYING.txt for license details.
 
- */
 declare(strict_types=1);
 
 namespace solu1TaxJar\Migration;
@@ -23,7 +20,7 @@ class Migration1650801564MyQuery extends MigrationStep
     {
         $query = /** @lang SQL */
             <<<SQL
-          CREATE TABLE IF NOT EXISTS `itg_tax_service_provider` (
+          CREATE TABLE IF NOT EXISTS `s25_tax_service_provider` (
           `id` binary(16) NOT NULL,
           `name` varchar(512) DEFAULT NULL,
           `base_class` text,
@@ -34,7 +31,7 @@ class Migration1650801564MyQuery extends MigrationStep
        ;
 SQL;
         $connection->executeStatement($query);
-        $connection->executeStatement('TRUNCATE TABLE `itg_tax_service_provider`');
+        $connection->executeStatement('TRUNCATE TABLE `s25_tax_service_provider`');
         $this->addTaxjarServiceProvider($connection);
     }
 
@@ -48,7 +45,7 @@ SQL;
         $taxJarDataEntry = $this->getTaxJarData();
         $taxJarDataEntry['id'] = Uuid::randomBytes();
         $taxJarDataEntry['created_at'] = date('Y:m:d H:i:s', time());
-        $connection->insert('itg_tax_service_provider', $taxJarDataEntry);
+        $connection->insert('s25_tax_service_provider', $taxJarDataEntry);
     }
 
     /**
@@ -64,6 +61,6 @@ SQL;
 
     public function updateDestructive(Connection $connection): void
     {
-        $connection->executeStatement('DROP TABLE IF EXISTS `itg_tax_service_provider`');
+        $connection->executeStatement('DROP TABLE IF EXISTS `s25_tax_service_provider`');
     }
 }

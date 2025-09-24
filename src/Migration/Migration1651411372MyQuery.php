@@ -1,6 +1,5 @@
 <?php
 /**
- * Copyright ©2021 ITG Commerce Ltd., Inc. All rights reserved.
  * See COPYING.txt for license details.
 
  */

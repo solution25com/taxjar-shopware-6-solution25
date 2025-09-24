@@ -181,18 +181,7 @@ class TransactionSubscriber implements EventSubscriberInterface
             try {
                 $this->context = $event->getContext();
                 $method = 'DELETE';
-
-                // The "delete order" event is triggered not only when an order is actually deleted,
-                // but also when navigating back from the order detail page to the list of orders in admin.
-                // Since this same event is used for actual deletion, we need to check if the order exists.
-                // If $order exists, it means this is just a page navigation, so we skip the deletion logic.
-                // If $order does NOT exist, it means the order was actually deleted, and we continue.
-
                 if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
-                  return;
-                }
-                $order = $this->getOrder($event->getIds()[0]);
-                if ($order) {
                   return;
                 }
 

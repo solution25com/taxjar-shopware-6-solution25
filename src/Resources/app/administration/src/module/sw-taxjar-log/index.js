@@ -1,10 +1,17 @@
 const { Module } = Shopware;
-import './page/tax-jar-log';
+import './page/tax-jar-log'; // Component registered for module which will used for showing data
+
+import enGB from './snippet/en-GB';
+import deDE from './snippet/de-DE';
 
 Module.register('sw-tax-log-module', {
     type: 'plugin',
     title: 'sw-tax-log-module.general.mainMenuItemList',
     description: 'sw-tax-log-module.general.descriptionTextModule',
+    snippets: {
+        'en-GB': enGB,
+        'de-De': deDE
+    },
 
     routes: {
         'list': {

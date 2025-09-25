@@ -1,6 +1,6 @@
 <?php
 
-namespace solu1TaxJar\Core\TaxJar;
+namespace ITGCoTax\Core\TaxJar;
 
 use GuzzleHttp\Exception\GuzzleException;
 use Psr\Cache\InvalidArgumentException;
@@ -15,9 +15,11 @@ use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Psr\Cache\CacheItemPoolInterface;
 
+
+
 class Calculator
 {
-    private const CACHE_ID = 's25_tax_jar_response_';
+    private const CACHE_ID = 'itg_tax_jar_response_';
 
     public const REQUEST_TYPE = 'Tax Calculation';
 
@@ -94,9 +96,13 @@ class Calculator
             }
 
             $shippingAddress = $context->getCustomer()->getActiveShippingAddress();
+            $countryState = $shippingAddress->getCountryState();
 
-            $stateCode = $shippingAddress->getCountryState() ?
-                explode('-', $shippingAddress->getCountryState()->getShortCode()) : '';
+            $stateCode = [];
+            if ($countryState) {
+                $stateCode = explode('-', $countryState->getShortCode());
+                $stateName = $countryState->getName();
+            }
             $stateName = $shippingAddress->getCountryState() ?
                 $shippingAddress->getCountryState()->getName() : '';
             $shippingFromAddress = $this->getShippingOriginAddress();
@@ -106,10 +112,10 @@ class Calculator
             $cartInfo = [
                 "to_country" => $shippingAddress->getCountry()->getIso(),
                 "to_zip" => $shippingAddress->getZipcode(),
-                "to_state" => isset($stateCode[1]) ? $stateCode[1] : $stateName,
+                "to_state" => $stateCode[1] ?? $stateName,
                 "to_city" => $shippingAddress->getCity(),
                 "to_street" => $shippingAddress->getStreet(),
-                "amount" => $this->cartTotal ?: $cart->getPrice()->getTotalPrice(),
+                "amount" => $cart->getPrice()->getTotalPrice(),
                 "shipping" => $this->useIncludeShippingCostForTaxCalculation() ?
                     $cart->getShippingCosts()->getUnitPrice() : 0,
                 "line_items" => $lineItems
@@ -134,7 +140,8 @@ class Calculator
                 if ($this->useIncludeShippingCostForTaxCalculation()) {
                     if (isset($taxInformation['breakdown']['shipping']) &&
                         ($shippingTax = $taxInformation['breakdown']['shipping'])) {
-                        $processedResponse['shippingTax'] = $shippingTax['tax_collectable'] ?? 0;
+                        $processedResponse['shippingTax'] = isset($shippingTax['tax_collectable']) ?
+                            $shippingTax['tax_collectable'] : 0;
                     }
                 }
                 return $processedResponse;
@@ -168,11 +175,11 @@ class Calculator
                     $this->cartTotal = $this->cartTotal + ($lineItems[$key]['unit_price'] * $quantity);
                 }
 
-              if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
-                $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
-              } else {
-                $productTaxCode = $this->getDefaultProductTaxCode();
-              }
+                $productTaxCode = $product->getCustomFields() ?
+                    $product->getCustomFields()['product_tax_code_value'] : Null;
+                if (!$productTaxCode) {
+                    $productTaxCode = $this->getDefaultProductTaxCode();
+                }
                 $lineItems[$key]['product_tax_code'] = $productTaxCode;
             }
         }
@@ -186,9 +193,15 @@ class Calculator
      */
     private function getProduct(string $productId, SalesChannelContext $context): ProductEntity
     {
-        return $this->productRepository
+        $product = $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
             ->get($productId);
+
+        if (!$product instanceof ProductEntity) {
+            throw new \RuntimeException("Product with ID $productId not found.");
+        }
+
+        return $product;
     }
 
     /**
@@ -270,7 +283,7 @@ class Calculator
      */
     private function _isSandboxMode(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
     }
 
     /**
@@ -278,7 +291,7 @@ class Calculator
      */
     private function useIncludeShippingCostForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.includeShippingCost', $this->salesChannelId);
     }
 
     /**
@@ -286,7 +299,7 @@ class Calculator
      */
     private function useGrossPriceForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.useGrossPrice', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.useGrossPrice', $this->salesChannelId);
     }
 
     /**
@@ -294,7 +307,7 @@ class Calculator
      */
     private function _isActive(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.active', $this->salesChannelId);
     }
 
     /**
@@ -303,9 +316,9 @@ class Calculator
     private function _taxJarApiToken()
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+            return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
     }
 
     /**
@@ -325,11 +338,11 @@ class Calculator
     private function getShippingOriginAddress(): array
     {
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCountry', $this->salesChannelId),
+            "from_zip" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromZip', $this->salesChannelId),
+            "from_state" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromState', $this->salesChannelId),
+            "from_city" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCity', $this->salesChannelId),
+            "from_street" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromStreet', $this->salesChannelId),
         ];
     }
 
@@ -338,7 +351,7 @@ class Calculator
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        return $this->systemConfigService->get('ITGCoTax.setting.defaultProductTaxCode', $this->salesChannelId);
     }
 
     /**
@@ -346,7 +359,7 @@ class Calculator
      */
     private function isDebugModeOn(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.debug', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.debug', $this->salesChannelId);
     }
 
     /**

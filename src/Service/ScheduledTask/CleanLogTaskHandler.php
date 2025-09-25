@@ -1,8 +1,9 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Service\ScheduledTask;
+namespace ITGCoTax\Service\ScheduledTask;
 
-use solu1TaxJar\Core\Content\TaxLog\TaxLogCollection;
+use ITGCoTax\Core\Content\TaxLog\TaxLogCollection;
+use Psr\Log\LoggerInterface;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
@@ -24,10 +25,11 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
      */
     public function __construct(
         EntityRepository $scheduledTaskRepository,
-        EntityRepository $runRepository
+        EntityRepository $runRepository,
+        LoggerInterface $exceptionLogger
     )
     {
-        parent::__construct($scheduledTaskRepository);
+        parent::__construct($scheduledTaskRepository, $exceptionLogger);
         $this->logRepository = $runRepository;
     }
 
@@ -54,6 +56,7 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
 
         $now = new \DateTime();
         foreach ($runs as $run) {
+            /** @var \ITGCoTax\Core\Content\TaxLog\TaxLogEntity $run */
             $createdAt = $run->getCreatedAt();
             if ($createdAt !== null && $createdAt->diff($now)->days > self::LOG_RETENTION_PERIOD) {
                 $deletable[] = ['id' => $run->getId()];

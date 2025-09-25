@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Storefront\Controller;
+namespace ITGCoTax\Storefront\Controller;
 
 use Exception;
 use GuzzleHttp\Exception\ClientException;
@@ -70,7 +70,7 @@ class TestConnectionController extends AbstractController
      * @param $sandBoxMode
      * @return string
      */
-    private function _getApiEndPoint($sandBoxMode = false): string
+    private function _getApiEndPoint($sandBoxMode = true): string
     {
         if ($sandBoxMode) {
             return self::SANDBOX_API_URL;
@@ -79,7 +79,8 @@ class TestConnectionController extends AbstractController
     }
 
     /**
-     * @return array
+     * @param array<string, mixed> $requestData
+     * @return array<string, string>
      */
     private function getShippingOriginAddress($requestData): array
     {

@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Storefront\Controller;
+namespace ITGCoTax\Storefront\Controller;
 
 use Exception;
 use GuzzleHttp\Exception\ClientException;
@@ -43,9 +43,8 @@ class TestConnectionController extends AbstractController
         $orderDetail = array_merge($fromAddress, $orderDetail);
         $request = new GRequest(
             'POST',
-            $this->_getApiEndPoint($isSandBoxMode) . '/taxes',
-            $headers,
-            json_encode($orderDetail)
+            $this->_getApiEndPoint((bool)$isSandBoxMode) . '/taxes',
+            $headers
         );
         try {
             $restClient = new Client();
@@ -70,7 +69,7 @@ class TestConnectionController extends AbstractController
      * @param $sandBoxMode
      * @return string
      */
-    private function _getApiEndPoint($sandBoxMode = false): string
+    private function _getApiEndPoint(bool $sandBoxMode = false): string
     {
         if ($sandBoxMode) {
             return self::SANDBOX_API_URL;
@@ -79,16 +78,17 @@ class TestConnectionController extends AbstractController
     }
 
     /**
-     * @return array
+     * @param array<string, mixed> $requestData
+     * @return array<string, string>
      */
     private function getShippingOriginAddress($requestData): array
     {
         return [
-            "from_country" => $requestData['from_country'] ?? '',
-            "from_zip" => $requestData['from_zip'] ?? '',
-            "from_state" => $requestData['from_state'] ?? '',
-            "from_city" => $requestData['from_city'] ?? '',
-            "from_street" => $requestData['from_street'] ?? ''
+            "from_country" => $requestData['from_country'],
+            "from_zip" => $requestData['from_zip'],
+            "from_state" => $requestData['from_state'],
+            "from_city" => $requestData['from_city'],
+            "from_street" => $requestData['from_street']
         ];
     }
 }

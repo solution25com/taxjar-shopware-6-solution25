@@ -2,28 +2,47 @@
 
 declare(strict_types=1);
 
-namespace solu1TaxJar\Core\Checkout\Cart\Collector;
+namespace ITGCoTax\Core\Checkout\Cart\Collector;
 
+use AllowDynamicProperties;
+use ITGCoTax\Core\Checkout\Cart\Extension\TaxExtensionStruct;
 use Psr\Cache\CacheItemPoolInterface;
 use Shopware\Core\Checkout\Cart\Cart;
 use Shopware\Core\Checkout\Cart\CartBehavior;
 use Shopware\Core\Checkout\Cart\CartProcessorInterface;
 use Shopware\Core\Checkout\Cart\LineItem\CartDataCollection;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use Shopware\Core\System\Tax\TaxCollection;
+use Shopware\Core\System\TaxProvider\TaxProviderCollection;
+use ITGCoTax\Core\Content\TaxLog\TaxLogCollection;
+use Shopware\Core\Content\Product\ProductCollection;
 
+
+#[AllowDynamicProperties]
 class AddTaxCollector implements CartProcessorInterface
 {
     /**
      * @var EntityRepository
      */
+
+
+    /**
+     * @var QuantityPriceCalculator
+     */
+
+    /**
+     * @var TaxCollection
+     */
     private $taxRepository;
 
     /**
-     * @var EntityRepository
+     * @var TaxProviderCollection
      */
     private $taxProviderRepository;
 
@@ -33,12 +52,12 @@ class AddTaxCollector implements CartProcessorInterface
     private $systemConfigService;
 
     /**
-     * @var EntityRepository
+     * @var TaxLogCollection
      */
     private $taxJarLogRepository;
 
     /**
-     * @var EntityRepository
+     * @var ProductCollection
      */
     private $productRepository;
 
@@ -48,17 +67,17 @@ class AddTaxCollector implements CartProcessorInterface
     private $cache;
 
     /**
-     * @param EntityRepository $taxRepository
-     * @param EntityRepository $taxProviderRepository
-     * @param EntityRepository $taxJarLogRepository
-     * @param EntityRepository $productRepository
+     * @param TaxCollection $taxRepository
+     * @param TaxProviderCollection $taxProviderRepository
+     * @param TaxLogCollection $taxJarLogRepository
+     * @param ProductCollection $productRepository
      * @param SystemConfigService $systemConfigService
      */
     public function __construct(
-        EntityRepository        $taxRepository,
-        EntityRepository        $taxProviderRepository,
-        EntityRepository        $taxJarLogRepository,
-        EntityRepository        $productRepository,
+        TaxCollection        $taxRepository,
+        TaxProviderCollection        $taxProviderRepository,
+        TaxLogCollection        $taxJarLogRepository,
+        ProductCollection        $productRepository,
         SystemConfigService     $systemConfigService,
         CacheItemPoolInterface  $cache
     )
@@ -70,20 +89,25 @@ class AddTaxCollector implements CartProcessorInterface
         $this->productRepository = $productRepository;
         $this->cache = $cache;
     }
-
+    /**
+     * @param string $taxRuleId
+     * @return object|false
+     */
     private function getTaxProviderClass($taxRuleId, SalesChannelContext $context)
     {
         if ($taxRuleId) {
-            $criteria = new Criteria([$taxRuleId]);
+            $criteria = new Criteria();
+            $criteria->addFilter(new EqualsAnyFilter('id', [0 => $taxRuleId]));
             $taxRules = $this->taxRepository->search($criteria, $context->getContext());
             foreach ($taxRules as $taxRule) {
-                if ($taxRule->getExtension('taxExtension') &&
-                    $taxProviderId = $taxRule->getExtension('taxExtension')->getProviderId()) {
-                    $criteria = new Criteria([$taxProviderId]);
+                /** @var TaxExtensionStruct|null $extension */
+                $extension = $taxRule->getExtension('taxExtension');
+                if ($extension && $extension->getProviderId()) {
+                    $criteria = new Criteria([$extension->getProviderId()]);
                     $taxProviders = $this->taxProviderRepository->search($criteria, $context->getContext());
                     foreach ($taxProviders as $taxProvider) {
-                        if ($taxProvider->getBaseClass()) {
-                            $taxCalculatorClass = $taxProvider->getBaseClass();
+                        $taxCalculatorClass = $taxProvider->get('baseClass');
+                        if ($taxCalculatorClass) {
                             return new $taxCalculatorClass(
                                 $this->systemConfigService,
                                 $this->taxJarLogRepository,
@@ -97,6 +121,7 @@ class AddTaxCollector implements CartProcessorInterface
         }
         return false;
     }
+
 
     public function process(CartDataCollection $data, Cart $original, Cart $toCalculate, SalesChannelContext $context, CartBehavior $behavior): void
     {

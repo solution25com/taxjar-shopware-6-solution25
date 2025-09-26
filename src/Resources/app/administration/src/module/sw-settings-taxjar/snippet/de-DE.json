@@ -1,14 +1,13 @@
 {
     "sw-settings-taxjar": {
         "general": {
-            "textHeadline": "Einstellungen des Steuerdienstanbieters",
-            "buttonSave": "Speichern",
-            "buttonLog": "TaxJar-Protokoll",
-            "testButtonLabel": "Verbindung testen"
+            "textHeadline": "Tax service provider settings",
+            "buttonSave": "Save",
+            "testButtonLabel": "Test Connection"
         },
         "testConnection": {
-            "error": "Bitte geben Sie einen gültigen API-Token ein",
-            "success": "TaxJar erfolgreich verbunden"
+            "error": "Please provide valid API token",
+            "success": "TaxJar successfully Connected"
         }
     }
 }

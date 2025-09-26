@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Migration;
+namespace ITGCoTax\Migration;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
@@ -62,7 +62,7 @@ class Migration1654525494MyQuery extends MigrationStep
     /**
      * @param Connection $connection
      * @return string
-     * @throws Exception
+     * @throws \Doctrine\DBAL\Exception
      */
     private function createCustomFieldSet(Connection $connection)
     {
@@ -79,9 +79,10 @@ class Migration1654525494MyQuery extends MigrationStep
                 'translated' => true,
             ]),
             'id' => $customFieldSetId,
-            'created_at' => date('Y-m-d h:i:s')
+            'created_at' => (new \DateTime())->format('Y-m-d H:i:s'),
         ];
         $connection->insert('custom_field_set', $customFieldSet);
+
         return $customFieldSetId;
     }
 
@@ -89,12 +90,12 @@ class Migration1654525494MyQuery extends MigrationStep
     /**
      * @param Connection $connection
      * @return string
-     * @throws Exception
+     * @throws \Doctrine\DBAL\Exception
      */
     private function createCustomField(Connection $connection, $customerFieldSetId)
     {
         $customFieldId = Uuid::randomBytes();
-        $customFieldSet = [
+        $customField = [
             'name' => 'product_tax_code_value',
             'set_id' => $customerFieldSetId,
             'type' => 'text',
@@ -105,7 +106,7 @@ class Migration1654525494MyQuery extends MigrationStep
                     'en-GB' => 'Product Tax Code',
                 ],
                 'helpText' => [
-                    'en-GB' => NULL,
+                    'en-GB' => null,
                 ],
                 'placeholder' => [
                     'en-GB' => 'Product Tax Code',
@@ -115,9 +116,10 @@ class Migration1654525494MyQuery extends MigrationStep
                 'customFieldPosition' => 1,
             ]),
             'id' => $customFieldId,
-            'created_at' => date('Y-m-d h:i:s')
+            'created_at' => (new \DateTime())->format('Y-m-d H:i:s'),
         ];
-        $connection->insert('custom_field', $customFieldSet);
+        $connection->insert('custom_field', $customField);
+
         return $customFieldId;
     }
 
@@ -125,7 +127,7 @@ class Migration1654525494MyQuery extends MigrationStep
      * @param Connection $connection
      * @param $customerFieldSetId
      * @return string
-     * @throws Exception
+     * @throws \Doctrine\DBAL\Exception
      */
     private function createFieldRelation(Connection $connection, $customerFieldSetId)
     {

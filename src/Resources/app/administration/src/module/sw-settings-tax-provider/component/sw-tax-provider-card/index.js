@@ -23,10 +23,10 @@ Component.register('sw-tax-provider-card', {
             return this.repositoryFactory.create('tax');
         },
         taxProviderRepository() {
-            return this.repositoryFactory.create('s25_tax_service_provider');
+            return this.repositoryFactory.create('itg_tax_service_provider');
         },
         taxMappingRepository() {
-            return this.repositoryFactory.create('s25_tax_provider');
+            return this.repositoryFactory.create('itg_tax_provider');
         },
         taxProviderCriteria() {
             const criteria = new Criteria();

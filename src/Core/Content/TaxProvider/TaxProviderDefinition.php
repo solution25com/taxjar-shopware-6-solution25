@@ -1,7 +1,12 @@
 <?php
+/**
+ * Copyright ©2021 ITG Commerce Ltd., Inc. All rights reserved.
+ * See COPYING.txt for license details.
+
+ */
 declare(strict_types=1);
 
-namespace solu1TaxJar\Core\Content\TaxProvider;
+namespace ITGCoTax\Core\Content\TaxProvider;
 
 use Shopware\Core\Framework\DataAbstractionLayer\EntityDefinition;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\CreatedAtField;
@@ -18,7 +23,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
 
 class TaxProviderDefinition extends EntityDefinition
 {
-    public const ENTITY_NAME = 's25_tax_service_provider';
+    public const ENTITY_NAME = 'itg_tax_service_provider';
 
     public function getEntityName(): string
     {

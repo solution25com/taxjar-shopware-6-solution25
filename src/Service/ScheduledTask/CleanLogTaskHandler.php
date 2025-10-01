@@ -1,8 +1,8 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Service\ScheduledTask;
+namespace ITGCoTax\Service\ScheduledTask;
 
-use solu1TaxJar\Core\Content\TaxLog\TaxLogCollection;
+use ITGCoTax\Core\Content\TaxLog\TaxLogCollection;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;

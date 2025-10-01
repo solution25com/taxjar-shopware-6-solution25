@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Storefront\Controller;
+namespace ITGCoTax\Storefront\Controller;
 
 use Exception;
 use GuzzleHttp\Exception\ClientException;

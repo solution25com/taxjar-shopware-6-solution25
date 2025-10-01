@@ -37,18 +37,18 @@ Component.register('sw-settings-taxjar', {
             let inputData = this.$refs.systemConfig.actualConfigData[null];
             let apiBasePath = Shopware.Context.api.basePath;
             let url = apiBasePath + "/api/_action/tax-jar/test-connection";
-            let token = inputData["solu1TaxJar.setting.liveApiToken"];
-            if (inputData["solu1TaxJar.setting.sandboxMode"]) {
-                token = inputData["solu1TaxJar.setting.sandboxApiToken"];
+            let token = inputData["ITGCoTax.setting.liveApiToken"];
+            if (inputData["ITGCoTax.setting.sandboxMode"]) {
+                token = inputData["ITGCoTax.setting.sandboxApiToken"];
             }
             let raw = JSON.stringify({
                 "token": token,
-                "sandbox": inputData["solu1TaxJar.setting.sandboxMode"],
-                "from_country":inputData["solu1TaxJar.setting.shippingFromCountry"],
-                "from_zip":inputData["solu1TaxJar.setting.shippingFromZip"],
-                "from_state":inputData["solu1TaxJar.setting.shippingFromState"],
-                "from_city":inputData["solu1TaxJar.setting.shippingFromCity"],
-                "from_street":inputData["solu1TaxJar.setting.shippingFromStreet"],
+                "sandbox": inputData["ITGCoTax.setting.sandboxMode"],
+                "from_country":inputData["ITGCoTax.setting.shippingFromCountry"],
+                "from_zip":inputData["ITGCoTax.setting.shippingFromZip"],
+                "from_state":inputData["ITGCoTax.setting.shippingFromState"],
+                "from_city":inputData["ITGCoTax.setting.shippingFromCity"],
+                "from_street":inputData["ITGCoTax.setting.shippingFromStreet"],
             });
             let header = {
                 method:"POST",
@@ -91,15 +91,15 @@ Component.register('sw-settings-taxjar', {
         validateInput(){
             let inputData = this.$refs.systemConfig.actualConfigData[null];
             let hasError = false;
-            if (!inputData["solu1TaxJar.setting.sandboxMode"]) {
-                if (!inputData["solu1TaxJar.setting.liveApiToken"]) {
+            if (!inputData["ITGCoTax.setting.sandboxMode"]) {
+                if (!inputData["ITGCoTax.setting.liveApiToken"]) {
                     this.createNotificationError({
                         message: 'Provide Valid Live API Token'
                     });
                     hasError = true;
                 }
             } else {
-                if (!inputData["solu1TaxJar.setting.sandboxApiToken"]) {
+                if (!inputData["ITGCoTax.setting.sandboxApiToken"]) {
                     this.createNotificationError({
                         message: 'Provide Valid Sandbox API Token'
                     });
@@ -107,44 +107,44 @@ Component.register('sw-settings-taxjar', {
                 }
             }
 
-            if (!inputData["solu1TaxJar.setting.defaultProductTaxCode"]) {
+            if (!inputData["ITGCoTax.setting.defaultProductTaxCode"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Product Tax Code'
                 });
                 hasError = true;
             }
-            if (!inputData["solu1TaxJar.setting.shippingFromStreet"]) {
+            if (!inputData["ITGCoTax.setting.shippingFromStreet"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Shipping From Street'
                 });
                 hasError = true;
             }
-            if (!inputData["solu1TaxJar.setting.shippingFromCity"]) {
+            if (!inputData["ITGCoTax.setting.shippingFromCity"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Shipping From City'
                 });
                 hasError = true;
             }
-            if (!inputData["solu1TaxJar.setting.shippingFromZip"]) {
+            if (!inputData["ITGCoTax.setting.shippingFromZip"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Shipping From Zip'
                 });
                 hasError = true;
             }
-            if (!inputData["solu1TaxJar.setting.shippingFromState"]) {
+            if (!inputData["ITGCoTax.setting.shippingFromState"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Shipping From State Code'
                 });
                 hasError = true;
             } else {
-                if (inputData["solu1TaxJar.setting.shippingFromState"].length > 3) {
+                if (inputData["ITGCoTax.setting.shippingFromState"].length > 3) {
                     this.createNotificationError({
                         message: 'Provide Valid Shipping From State Code Ex: WI For Wisconsin'
                     });
                     hasError = true;
                 }
             }
-            if (!inputData["solu1TaxJar.setting.shippingFromCountry"]) {
+            if (!inputData["ITGCoTax.setting.shippingFromCountry"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Shipping From Country'
                 });

@@ -3,7 +3,7 @@
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
     <card>
         <title>Tax Jar Settings</title>
-        <title lang="de-DE">#solu1TaxJarJar# Einstellungen</title>
+        <title lang="de-DE">#ITGCoTaxJar# Einstellungen</title>
         <input-field type="bool">
             <name>active</name>
             <label>Active</label>

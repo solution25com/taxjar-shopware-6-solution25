@@ -3,64 +3,66 @@
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
     <services>
-        <service id="solu1TaxJar\Core\Content\TaxProvider\TaxProviderDefinition">
-            <tag name="shopware.entity.definition" entity="s25_tax_service_provider"/>
+        <service id="ITGCoTax\Core\Content\TaxProvider\TaxProviderDefinition">
+            <tag name="shopware.entity.definition" entity="itg_tax_service_provider"/>
         </service>
-        <service id="solu1TaxJar\Core\Content\TaxLog\TaxLogDefinition">
-            <tag name="shopware.entity.definition" entity="s25_taxjar_log"/>
+        <service id="ITGCoTax\Core\Content\TaxLog\TaxLogDefinition">
+            <tag name="shopware.entity.definition" entity="itg_taxjar_log"/>
         </service>
-        <service id="solu1TaxJar\Core\Content\Extension\TaxExtension">
+        <service id="ITGCoTax\Core\Content\Extension\TaxExtension">
             <tag name="shopware.entity.extension"/>
         </service>
-        <service id="solu1TaxJar\Core\Content\Extension\TaxExtensionDefinition">
-            <tag name="shopware.entity.definition" entity="s25_tax_provider" />
+        <service id="ITGCoTax\Core\Content\Extension\TaxExtensionDefinition">
+            <tag name="shopware.entity.definition" entity="itg_tax_provider" />
         </service>
-        <service id="solu1TaxJar\Core\Checkout\Cart\Collector\AddTaxCollector">
+        <service id="ITGCoTax\Core\Checkout\Cart\Collector\AddTaxCollector">
+            <argument type="service" id="product_price.repository" />
             <argument type="service" id="tax.repository" />
-            <argument type="service" id="s25_tax_service_provider.repository" />
-            <argument type="service" id="s25_taxjar_log.repository" />
+            <argument type="service" id="itg_tax_service_provider.repository" />
+            <argument type="service" id="itg_taxjar_log.repository" />
             <argument type="service" id="product.repository" />
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator"/>
             <argument type="service" id="cache.object"/>
             <tag name="shopware.cart.processor" priority="4500" />
         </service>
-        <service id="solu1TaxJar\Core\TaxJar\Calculator" public="true">
+        <service id="ITGCoTax\Core\TaxJar\Calculator" public="true">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
-            <argument type="service" id="s25_taxjar_log.repository" />
+            <argument type="service" id="itg_taxjar_log.repository" />
             <argument type="service" id="product.repository" />
             <argument type="service" id="cache.object"/>
         </service>
-        <service id="solu1TaxJar\Storefront\Controller\TestConnectionController" public="true">
+        <service id="ITGCoTax\Storefront\Controller\TestConnectionController" public="true">
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
             </call>
         </service>
-        <service id="solu1TaxJar\Storefront\Controller\ExportLogController" public="true">
-            <argument type="service" id="s25_taxjar_log.repository" />
+        <service id="ITGCoTax\Storefront\Controller\ExportLogController" public="true">
+            <argument type="service" id="itg_taxjar_log.repository" />
         </service>
-        <service id="solu1TaxJar\Core\TaxJar\Order\TransactionSubscriber">
+        <service id="ITGCoTax\Core\TaxJar\Order\TransactionSubscriber">
             <tag name="kernel.event_subscriber"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
-            <argument type="service" id="s25_taxjar_log.repository" />
+            <argument type="service" id="itg_taxjar_log.repository" />
             <argument type="service" id="order.repository" />
             <argument type="service" id="product.repository" />
             <argument type="service" id="country.repository" />
             <argument type="service" id="country_state.repository" />
-            <argument type="service" id="order_transaction.repository" />
         </service>
-        <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
+        <service id="ITGCoTax\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />
         </service>
-        <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTaskHandler">
+        <service id="ITGCoTax\Service\ScheduledTask\CleanLogTaskHandler">
             <argument type="service" id="scheduled_task.repository"/>
-            <argument type="service" id="s25_taxjar_log.repository" />
+            <argument type="service" id="itg_taxjar_log.repository" />
             <tag name="messenger.message_handler" />
         </service>
-
-        <service id="solu1TaxJar\Core\Api\Nexus\TaxJarNexusApiController" public="true">
+        <service id="ITGCoTax\Subscriber\CustomerSubscriber">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
-            <call method="setContainer">
-                <argument type="service" id="service_container"/>
-            </call>        </service>
+            <argument type="service" id="customer.repository"/>
+            <argument type="service" id="http_client"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
     </services>
 </container>

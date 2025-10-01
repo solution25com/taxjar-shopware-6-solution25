@@ -4,6 +4,7 @@ namespace solu1TaxJar\Core\TaxJar\Order;
 
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
+use solu1TaxJar\Core\Content\TaxLog\TaxLogCollection;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\OrderEntity;
@@ -12,6 +13,7 @@ use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
@@ -23,6 +25,12 @@ use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Request as GRequest;
+use Psr\Http\Message\StreamInterface;
+use Shopware\Core\Checkout\Order\Aggregate\OrderCustomer\OrderCustomerEntity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderAddress\OrderAddressEntity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderLineItem\OrderLineItemCollection;
+use Shopware\Core\Framework\DataAbstractionLayer\Entity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionEntity;
 
 class TransactionSubscriber implements EventSubscriberInterface
 {
@@ -51,12 +59,12 @@ class TransactionSubscriber implements EventSubscriberInterface
     protected $dispatched = false;
 
     /**
-     * @var mixed
+     * @var string|null
      */
     protected $existTransactionId = null;
 
     /**
-     * @var mixed
+     * @var string|null
      */
     protected $salesChannelId = null;
 
@@ -71,38 +79,43 @@ class TransactionSubscriber implements EventSubscriberInterface
     private  $systemConfigService;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<TaxLogCollection>
      */
     private  $taxJarLogRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<EntityCollection<OrderEntity>>
      */
     private  $orderRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<EntityCollection<ProductEntity>>
      */
     private  $productRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<EntityCollection<CountryEntity>>
      */
     private  $countryRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<EntityCollection<CountryStateEntity>>
      */
     private  $stateRepository;
+
+    /**
+     * @var EntityRepository<EntityCollection<OrderTransactionEntity>>
+     */
     private  $orderTransactionRepository;
 
     /**
      * @param SystemConfigService $systemConfigService
-     * @param EntityRepository $taxJarLogRepository
-     * @param EntityRepository $orderRepository
-     * @param EntityRepository $productRepository
-     * @param EntityRepository $countryRepository
-     * @param EntityRepository $stateRepository
+     * @param EntityRepository<TaxLogCollection> $taxJarLogRepository
+     * @param EntityRepository<EntityCollection<OrderEntity>> $orderRepository
+     * @param EntityRepository<EntityCollection<ProductEntity>> $productRepository
+     * @param EntityRepository<EntityCollection<CountryEntity>> $countryRepository
+     * @param EntityRepository<EntityCollection<CountryStateEntity>> $stateRepository
+     * @param EntityRepository<EntityCollection<OrderTransactionEntity>> $orderTransactionRepository
      */
     public function __construct(
         SystemConfigService $systemConfigService,
@@ -154,12 +167,22 @@ class TransactionSubscriber implements EventSubscriberInterface
             ->addAssociation('paymentMethod')
             ->addAssociation('order');
 
+        /** @var OrderTransactionEntity|null $orderTransaction */
         $orderTransaction = $this->orderTransactionRepository->search($criteria, $this->context)->first();
-        $orderId = $orderTransaction->getOrder()->getId();
 
+        if ($orderTransaction === null) {
+            return;
+        }
+
+        $order = $orderTransaction->getOrder();
+        if ($order === null) {
+            return;
+        }
+
+        $orderId = $order->getId();
 
         if($nextState === 'paid'){
-            $this->createUpdateOrderTransaction($orderTransaction->getOrder()->getId());
+            $this->createUpdateOrderTransaction($orderId);
         }
         if($fromPlace == 'paid' && $nextState === 'cancelled'){
             $this->onOrderStateCancel($event, $orderId);
@@ -183,20 +206,20 @@ class TransactionSubscriber implements EventSubscriberInterface
                 $this->context = $event->getContext();
                 $method = 'DELETE';
                 if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
-                  return;
+                    return;
                 }
 
                 foreach ($event->getIds() as $orderId) {
                     $existTransactionId = $this->getExistTransactionId($orderId);
                     $logInfo = $this->getDeleteLogInfo($orderId);
-                    $orderId = $existTransactionId ?: $orderId;
-                    $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $orderId;
+                    $transactionId = $existTransactionId ?: $orderId;
+                    $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $transactionId;
 
                     $request = new GRequest(
                         $method,
                         $apiEndpointUrl,
                         $this->getHeaders(),
-                        json_encode(['orderId' => $orderId])
+                        json_encode(['orderId' => $transactionId]) ?: ''
                     );
                     try {
                         $response = (new Client())->send($request);
@@ -219,6 +242,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     /**
      * @param StateMachineTransitionEvent $event
+     * @param string $orderId
      * @return void
      */
     public function onOrderStateCancel(StateMachineTransitionEvent $event, string $orderId): void
@@ -232,16 +256,16 @@ class TransactionSubscriber implements EventSubscriberInterface
             }
             $existTransactionId = $this->getExistTransactionId($orderId);
             $logInfo = $this->getDeleteLogInfo($orderId);
-            $orderId = $existTransactionId ?: $orderId;
+            $transactionId = $existTransactionId ?: $orderId;
 
             $method = 'DELETE';
-            $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $orderId;
+            $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $transactionId;
 
             $request = new GRequest(
                 $method,
                 $apiEndpointUrl,
                 $this->getHeaders(),
-                json_encode(['orderId' => $orderId])
+                json_encode(['orderId' => $transactionId]) ?: ''
             );
             try {
                 $response = (new Client())->send($request);
@@ -261,9 +285,10 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     /**
      * @param StateMachineTransitionEvent $event
+     * @param string $orderId
      * @return void
      */
-    public function onOrderStateChange(StateMachineTransitionEvent $event, $orderId): void
+    public function onOrderStateChange(StateMachineTransitionEvent $event, string $orderId): void
     {
         try {
             $this->context = $event->getContext();
@@ -286,7 +311,7 @@ class TransactionSubscriber implements EventSubscriberInterface
                 $method,
                 $apiEndpointUrl,
                 $this->getHeaders(),
-                json_encode($orderDetail)
+                json_encode($orderDetail) ?: ''
             );
             try {
                 $response = (new Client())->send($request);
@@ -305,14 +330,13 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param $orderId
-     * @param $event
+     * @param string $orderId
      * @return void
      */
     protected function createUpdateOrderTransaction(string $orderId): void
     {
         try {
-            $order = $this->getOrder($orderId);;
+            $order = $this->getOrder($orderId);
             if (!$order) {
                 return;
             }
@@ -325,7 +349,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
             $orderDetail = $this->getOrderDetail($order);
 
-            if ($this->isDuplicateRequest(serialize($orderDetail))) {
+            if ($this->isDuplicateRequest(serialize($orderDetail) ?: '')) {
                 return;
             }
 
@@ -335,7 +359,7 @@ class TransactionSubscriber implements EventSubscriberInterface
                 $method,
                 $apiEndpointUrl,
                 $this->getHeaders(),
-                json_encode($orderDetail)
+                json_encode($orderDetail) ?: ''
             );
 
             try {
@@ -355,39 +379,40 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param $countryId
-     * @return false|CountryEntity
+     * @param string $countryId
+     * @return CountryEntity|false
      */
-    protected function getCountry($countryId)
+    protected function getCountry(string $countryId)
     {
         try {
-            /** @var CountryEntity $country */
+            /** @var CountryEntity|null $country */
             $country = $this->countryRepository
                 ->search(new Criteria([$countryId]), $this->context)
                 ->get($countryId);
-            return $country;
+            return $country ?: false;
         } catch (\Exception $e) {
             return false;
         }
     }
 
     /**
-     * @param $stateId
-     * @return mixed|null
+     * @param string $stateId
+     * @return CountryStateEntity|null
      */
-    protected function getCountryState($stateId): mixed
+    protected function getCountryState(string $stateId): ?CountryStateEntity
     {
-        /** @var CountryStateEntity $country */
-      return $this->stateRepository
-          ->search(new Criteria([$stateId]), $this->context)
-          ->get($stateId);
+        /** @var CountryStateEntity|null $countryState */
+        $countryState = $this->stateRepository
+            ->search(new Criteria([$stateId]), $this->context)
+            ->get($stateId);
+        return $countryState;
     }
 
     /**
-     * @param $requestKey
+     * @param string $requestKey
      * @return bool
      */
-    protected function isDuplicateRequest($requestKey)
+    protected function isDuplicateRequest(string $requestKey): bool
     {
         if ($requestKey) {
             $iterator = new RepositoryIterator(
@@ -403,20 +428,24 @@ class TransactionSubscriber implements EventSubscriberInterface
         return false;
     }
 
-    protected function getOperation($event): ?string
+    /**
+     * @param EntityWrittenEvent $event
+     * @return string|null
+     */
+    protected function getOperation(EntityWrittenEvent $event): ?string
     {
         $writingResults = $event->getWriteResults();
-        if (is_array($writingResults) && isset($writingResults[0])) {
+        if (count($writingResults) > 0 && isset($writingResults[0])) {
             return $writingResults[0]->getOperation();
         }
         return null;
     }
 
     /**
-     * @param $dataToLog
+     * @param array<string, mixed> $dataToLog
      * @return void
      */
-    protected function logRequestResponse($dataToLog)
+    protected function logRequestResponse(array $dataToLog): void
     {
         if (!empty($dataToLog)) {
             $this->taxJarLogRepository->create(
@@ -432,12 +461,19 @@ class TransactionSubscriber implements EventSubscriberInterface
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
     }
 
-    protected function _taxJarApiToken()
+    /**
+     * @return string
+     */
+    protected function _taxJarApiToken(): ?string
     {
+        $token = null;
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+            $token = $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+        } else {
+            $token = $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+
+        return is_string($token) ? $token : null;
     }
 
     /**
@@ -464,7 +500,8 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        $taxCode = $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        return is_string($taxCode) ? $taxCode : '';
     }
 
     private function getTransactionId(OrderEntity $order): string
@@ -474,7 +511,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         if ($configOrderId === 'orderId') {
             $orderId = $order->getId();
         } else {
-            $orderId = $order->getOrderNumber();
+            $orderId = $order->getOrderNumber() ?? $order->getId();
         }
         return self::PREFIX . $orderId;
     }
@@ -496,7 +533,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         return $transactionId;
     }
 
-    private function getOrder($orderId): ?OrderEntity
+    private function getOrder(string $orderId): ?OrderEntity
     {
         $criteria = new Criteria([$orderId]);
         $criteria->getAssociation('lineItems');
@@ -504,67 +541,107 @@ class TransactionSubscriber implements EventSubscriberInterface
         $criteria->getAssociation('billingAddress');
         $criteria->getAssociation('addresses');
         $criteria->getAssociation('deliveries');
-        $criteria->getAssociation('deliveries');
         $criteria->addAssociation('billingAddress.country');
         $criteria->addAssociation('billingAddress.countryState');
-        return $this->orderRepository
+        $criteria->addAssociation('orderCustomer');
+
+        /** @var OrderEntity|null $order */
+        $order = $this->orderRepository
             ->search($criteria, $this->context)
             ->get($orderId);
+        return $order;
     }
 
-    private function getHeaders()
+    /**
+     * @return array<string, string>
+     */
+    private function getHeaders(): array
     {
+        $apiToken = $this->_taxJarApiToken();
+
+        if ($apiToken === null) {
+            throw new \RuntimeException('TaxJar API token is not configured. Please check your TaxJar settings.');
+        }
+
         return [
             'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-            "X-CSRF-Token" => $this->_taxJarApiToken()
+            'Authorization' => 'Bearer ' . $apiToken,
+            'X-CSRF-Token' => $apiToken
         ];
     }
 
-    private function getLogInfo(OrderEntity $order, array $orderDetail, string $requestType)
+    /**
+     * @param OrderEntity $order
+     * @param array<string, mixed> $orderDetail
+     * @param string $requestType
+     * @return array<string, mixed>
+     */
+    private function getLogInfo(OrderEntity $order, array $orderDetail, string $requestType): array
     {
+        $orderCustomer = $order->getOrderCustomer();
+        $customerName = 'Unknown';
+        $customerEmail = '';
+        $remoteIp = '';
+
+        if ($orderCustomer instanceof OrderCustomerEntity) {
+            $firstName = $orderCustomer->getFirstName();
+            $lastName = $orderCustomer->getLastName();
+            $customerName = trim($firstName . ' ' . $lastName);
+            $customerEmail = $orderCustomer->getEmail();
+            $remoteIp = $orderCustomer->getRemoteAddress();
+        }
+
         return [
             'requestKey' => serialize($orderDetail),
-            'customerName' => $order->getOrderCustomer()->getFirstName() . ' ' . $order->getOrderCustomer()->getLastName(),
-            'customerEmail' => $order->getOrderCustomer()->getEmail(),
-            'remoteIp' => $order->getOrderCustomer()->getRemoteAddress() ?: '',
+            'customerName' => $customerName,
+            'customerEmail' => $customerEmail,
+            'remoteIp' => $remoteIp,
             'request' => json_encode($orderDetail),
             'type' => $requestType,
-            'orderNumber' => self::PREFIX . $order->getOrderNumber(),
+            'orderNumber' => self::PREFIX . ($order->getOrderNumber()),
             'orderId' => $order->getId()
         ];
     }
 
+    /**
+     * @param OrderEntity $order
+     * @return array<string, mixed>
+     */
     private function getOrderDetail(OrderEntity $order): array
     {
         $amounts = $this->getAmounts($order);
         $orderTotalAmount = $amounts['orderTotalAmount'];
         $orderTaxAmount = $amounts['orderTaxAmount'];
 
-        $lineItems = $this->getLineItems($order);;
+        $lineItems = $this->getLineItems($order);
 
         $shippingAddress = $order->getBillingAddress();
         $billingAddress = $order->getBillingAddress();
 
-        $country = $billingAddress?->getCountry()?->getIso();
-        $shortCode = $billingAddress?->getCountryState()?->getShortCode();
-        $state = explode('-', $shortCode)[1];
+        $country = $billingAddress?->getCountry()?->getIso() ?? '';
+        $shortCode = $billingAddress?->getCountryState()?->getShortCode() ?? '';
+        $state = $shortCode ? (explode('-', $shortCode)[1] ?? '') : '';
 
         $orderTotalAmount += $order->getShippingTotal();
 
         /** @todo Maybe should use just orderNumber $transactionId */
         $transactionId = $this->getTransactionId($order);
         $shippingFromAddress = $this->getShippingOriginAddress();
+
+        $shippingCity = $shippingAddress?->getCity() ?? '';
+        $shippingStreet = $shippingAddress?->getStreet() ?? '';
+        $shippingZip = $shippingAddress?->getZipcode() ?? $billingAddress?->getZipcode() ?? '';
+
         return array_merge(
             $shippingFromAddress,
             [
                 'transaction_id' => $transactionId,
                 'transaction_date' => $order->getOrderDate()->format('Y/m/d'),
                 'to_country' => $country,
-                'to_zip' => $shippingAddress ? $shippingAddress->getZipcode() : $billingAddress?->getZipcode(),
+                'to_zip' => $shippingZip,
                 'to_state' => $state,
-                'to_city' => $shippingAddress->getCity(),
-                'to_street' => $shippingAddress->getStreet(),
+                'to_city' => $shippingCity,
+                'to_street' => $shippingStreet,
                 'amount' => $orderTotalAmount,
                 'shipping' => $order->getShippingTotal(),
                 'sales_tax' => $orderTaxAmount,
@@ -573,47 +650,93 @@ class TransactionSubscriber implements EventSubscriberInterface
         );
     }
 
+    /**
+     * @param OrderEntity $order
+     * @return array<int, array<string, mixed>>
+     */
     private function getLineItems(OrderEntity $order): array
     {
         $lineItems = [];
-        foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
+        $orderLineItems = $order->getLineItems();
+
+        if (!$orderLineItems instanceof OrderLineItemCollection) {
+            return $lineItems;
+        }
+
+        foreach ($orderLineItems->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
             $parentProduct = null;
-            /** @var ProductEntity $product */
+            $productId = $lineItem->getProductId();
+
+            if ($productId === null) {
+                continue;
+            }
+
+            /** @var ProductEntity|null $product */
             $product = $this->productRepository
-                ->search(new Criteria([$lineItem->getProductId()]), $this->context)
-                ->get($lineItem->getProductId());
+                ->search(new Criteria([$productId]), $this->context)
+                ->get($productId);
+
+            if ($product === null) {
+                continue;
+            }
+
             $productTaxCode = $product->getCustomFields() ?
-                $product->getCustomFields()['product_tax_code_value'] : Null;
+                ($product->getCustomFields()['product_tax_code_value'] ?? null) : null;
+
             if ($product->getParentId()) {
+                /** @var ProductEntity|null $parentProduct */
                 $parentProduct = $this->productRepository
                     ->search(new Criteria([$product->getParentId()]), $this->context)
                     ->get($product->getParentId());
-                $productTaxCode = $parentProduct->getCustomFields() ?
-                    $parentProduct->getCustomFields()['product_tax_code_value'] : Null;
+
+                if ($parentProduct instanceof ProductEntity) {
+                    $productTaxCode = $parentProduct->getCustomFields() ?
+                        ($parentProduct->getCustomFields()['product_tax_code_value'] ?? null) : null;
+                }
             }
+
             if (!$productTaxCode) {
                 $productTaxCode = $this->getDefaultProductTaxCode();
             }
+
+            $productNumber = $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber();
+            $productName = $parentProduct ?
+                ($parentProduct->getTranslation('name')) :
+                ($product->getTranslation('name'));
+
             $lineItems[] = [
                 'quantity' => $lineItem->getQuantity(),
-                'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
-                'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
+                'product_identifier' => $productNumber,
+                'description' => $productName,
                 'unit_price' => $lineItem->getUnitPrice(),
                 'product_tax_code' => $productTaxCode,
-                'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount()
+                'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount() ?? 0.0
             ];
         }
         return $lineItems;
     }
 
+    /**
+     * @param OrderEntity $order
+     * @return array<string, float>
+     */
     private function getAmounts(OrderEntity $order): array
     {
-        $orderTotalAmount = 0;
-        $orderTaxAmount = 0;
+        $orderTotalAmount = 0.0;
+        $orderTaxAmount = 0.0;
 
-        foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
+        $orderLineItems = $order->getLineItems();
+
+        if (!$orderLineItems instanceof OrderLineItemCollection) {
+            return [
+                'orderTotalAmount' => $orderTotalAmount,
+                'orderTaxAmount' => $orderTaxAmount
+            ];
+        }
+
+        foreach ($orderLineItems->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
             $orderTotalAmount += $lineItem->getUnitPrice() * $lineItem->getQuantity();
-            $orderTaxAmount += $lineItem->getPrice()?->getCalculatedTaxes()->getAmount();
+            $orderTaxAmount += $lineItem->getPrice()?->getCalculatedTaxes()->getAmount() ?? 0.0;
         }
 
         return [
@@ -622,14 +745,18 @@ class TransactionSubscriber implements EventSubscriberInterface
         ];
     }
 
+    /**
+     * @param string $orderId
+     * @return array<string, mixed>
+     */
     private function getDeleteLogInfo(string $orderId): array
     {
         return [
-            'requestKey' => serialize(['orderId' => $orderId]),
+            'requestKey' => serialize(['orderId' => $orderId]) ?: '',
             'customerName' => 'Admin',
             'customerEmail' => '',
             'remoteIp' => '',
-            'request' => json_encode(['orderId' => $orderId]),
+            'request' => json_encode(['orderId' => $orderId]) ?: '',
             'type' => self::ORDER_DELETE_REQUEST_TYPE,
             'orderNumber' => '',
             'orderId' => $orderId
@@ -646,20 +773,32 @@ class TransactionSubscriber implements EventSubscriberInterface
                 new EqualsFilter('type', self::ORDER_CREATE_REQUEST_TYPE)
             )
         );
-        return $iterator->fetch()?->first();
-    }
 
+        $result = $iterator->fetch();
+        if ($result === null) {
+            return null;
+        }
+
+        $first = $result->first();
+        return $first instanceof TaxLogEntity ? $first : null;
+    }
     /**
-     * @return array
+     * @return array<string, string>
      */
     private function getShippingOriginAddress(): array
     {
+        $country = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId);
+        $zip = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId);
+        $state = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId);
+        $city = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId);
+        $street = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId);
+
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => is_string($country) ? $country : '',
+            "from_zip" => is_string($zip) ? $zip : '',
+            "from_state" => is_string($state) ? $state : '',
+            "from_city" => is_string($city) ? $city : '',
+            "from_street" => is_string($street) ? $street : '',
         ];
     }
 }

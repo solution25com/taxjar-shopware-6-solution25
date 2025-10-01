@@ -2,16 +2,14 @@
 declare(strict_types=1);
 
 namespace solu1TaxJar\Core\Content\Extension;
+
 use Shopware\Core\System\Tax\TaxDefinition;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityExtension;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\OneToOneAssociationField;
 use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
+
 class TaxExtension extends EntityExtension
 {
-    /**
-     * @param FieldCollection $collection
-     * @return void
-     */
     public function extendFields(FieldCollection $collection): void
     {
         $collection->add(
@@ -19,7 +17,8 @@ class TaxExtension extends EntityExtension
                 'taxExtension',
                 'id',
                 'tax_id',
-                TaxExtensionDefinition::class, true
+                TaxExtensionDefinition::class,
+                true
             )
         );
     }
@@ -27,5 +26,10 @@ class TaxExtension extends EntityExtension
     public function getDefinitionClass(): string
     {
         return TaxDefinition::class;
+    }
+
+    public function getEntityName(): string
+    {
+        return TaxDefinition::ENTITY_NAME;
     }
 }

@@ -35,5 +35,13 @@
         "psr-4": {
             "solu1TaxJar\\": "src/"
         }
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1"
+    },
+    "config": {
+        "allow-plugins": {
+            "symfony/runtime": true
+        }
     }
 }

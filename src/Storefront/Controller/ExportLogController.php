@@ -1,58 +1,65 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace solu1TaxJar\Storefront\Controller;
 
-use Exception;
+use solu1TaxJar\Core\Content\TaxLog\TaxLogCollection;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
-use Symfony\Component\HttpFoundation\Request;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\Context;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route(defaults: ['_routeScope' => ['api'], '_acl' => ['system.plugin_maintain']])]
 class ExportLogController
 {
     /**
-     * @var EntityRepository
+     * @var TaxLogCollection
      */
     private $taxJarLogRepository;
 
     /**
-     * @param EntityRepository $taxJarLogRepository
+     * @param TaxLogCollection $taxJarLogRepository
      */
-    public function __construct(
-        EntityRepository $taxJarLogRepository
-    )
+    public function __construct(TaxLogCollection $taxJarLogRepository)
     {
         $this->taxJarLogRepository = $taxJarLogRepository;
     }
 
-    #[Route(path: '/api/_action/tax-jar/export-log', name: 'frontend.taxjar.export-log', methods: ['GET'], defaults: ['XmlHttpRequest' => true, 'csrf_protected' => false])]
-    public function exportLog(Request $request, Context $context): JsonResponse
+    #[Route(
+        path: '/api/_action/tax-jar/export-log',
+        name: 'frontend.taxjar.export-log',
+        methods: ['GET'],
+        defaults: ['XmlHttpRequest' => true, 'csrf_protected' => false]
+    )]
+    public function exportLog(Context $context): JsonResponse
     {
         $response = [];
-        $iterator = new RepositoryIterator(
-            $this->taxJarLogRepository,
-            $context
-        );
-        $records = $iterator->fetch();
-        if (!is_null($records)) {
+        $criteria = new Criteria();
+
+
+        $taxLogs = $this->taxJarLogRepository->search($criteria, $context);
+
+        $records = [];
+        while (($result = $taxLogs->fetch()) !== null) {
             /** @var TaxLogEntity $taxJarLog */
-            foreach ($records->getEntities() as $taxJarLog) {
+            foreach ($result->getEntities() as $taxJarLog) {
                 $response[] = [
                     'customerName' => $taxJarLog->getCustomerName(),
                     'customerEmail' => $taxJarLog->getCustomerEmail(),
-                    'orderNumber' => $taxJarLog->getOrderNumber()??'',
-                    'orderId' => $taxJarLog->getOrderId()??'',
-                    'remoteIp' => $taxJarLog->getRemoteIp()?? '',
+                    'orderNumber' => $taxJarLog->getOrderNumber(),
+                    'orderId' => $taxJarLog->getOrderId(),
+                    'remoteIp' => $taxJarLog->getRemoteIp(),
                     'request' => str_replace('"', "'", $taxJarLog->getRequest()),
                     'response' => str_replace('"', "'", $taxJarLog->getResponse()),
-                    'createdAt' => $taxJarLog->getCreatedAt()->format(DATE_RFC3339_EXTENDED)
+                    'createdAt' => $taxJarLog->getCreatedAt()
                 ];
             }
         }
+
         return new JsonResponse($response);
     }
 }

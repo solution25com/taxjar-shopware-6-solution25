@@ -12,25 +12,25 @@ class TaxExtensionEntity extends Entity
     use EntityIdTrait;
     use EntityCustomFieldsTrait;
 
-    protected $providerId;
-    protected $taxId;
+    protected ?string $providerId = null;
+    protected ?string $taxId = null;
 
-    public function getProviderId(): string
+    public function getProviderId(): ?string
     {
         return $this->providerId;
     }
 
-    public function setProviderId($providerId)
+    public function setProviderId(?string $providerId): void
     {
         $this->providerId = $providerId;
     }
 
-    public function getTaxId(): string
+    public function getTaxId(): ?string
     {
         return $this->taxId;
     }
 
-    public function setTaxId($taxId)
+    public function setTaxId(?string $taxId): void
     {
         $this->taxId = $taxId;
     }

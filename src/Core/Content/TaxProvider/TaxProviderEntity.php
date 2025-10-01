@@ -12,8 +12,8 @@ class TaxProviderEntity extends Entity
     use EntityIdTrait;
     use EntityCustomFieldsTrait;
 
-    protected $name;
-    protected $baseClass;
+    protected string $name;
+    protected string $baseClass;
 
     public function getName(): string
     {

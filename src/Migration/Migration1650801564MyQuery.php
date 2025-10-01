@@ -18,38 +18,36 @@ class Migration1650801564MyQuery extends MigrationStep
 
     public function update(Connection $connection): void
     {
-        $query = /** @lang SQL */
-            <<<SQL
-          CREATE TABLE IF NOT EXISTS `s25_tax_service_provider` (
-          `id` binary(16) NOT NULL,
-          `name` varchar(512) DEFAULT NULL,
-          `base_class` text,
-          `created_at` datetime DEFAULT NULL,
-          `updated_at` datetime DEFAULT NULL,
-          PRIMARY KEY (`id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-       ;
-SQL;
+        $query = /** @lang SQL */ <<<SQL
+            CREATE TABLE IF NOT EXISTS `s25_tax_service_provider` (
+                `id` BINARY(16) NOT NULL,
+                `name` VARCHAR(512) DEFAULT NULL,
+                `base_class` TEXT,
+                `created_at` DATETIME(3) NULL,
+                `updated_at` DATETIME(3) NULL,
+                PRIMARY KEY (`id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        SQL;
+
         $connection->executeStatement($query);
         $connection->executeStatement('TRUNCATE TABLE `s25_tax_service_provider`');
         $this->addTaxjarServiceProvider($connection);
     }
 
     /**
-     * @param Connection $connection
-     * @return void
      * @throws Exception
      */
-    private function addTaxjarServiceProvider(Connection $connection)
+    private function addTaxjarServiceProvider(Connection $connection): void
     {
         $taxJarDataEntry = $this->getTaxJarData();
         $taxJarDataEntry['id'] = Uuid::randomBytes();
-        $taxJarDataEntry['created_at'] = date('Y:m:d H:i:s', time());
+        $taxJarDataEntry['created_at'] = (new \DateTime())->format('Y-m-d H:i:s.v');
+
         $connection->insert('s25_tax_service_provider', $taxJarDataEntry);
     }
 
     /**
-     * @return array
+     * @return array{name: string, base_class: string}
      */
     private function getTaxJarData(): array
     {

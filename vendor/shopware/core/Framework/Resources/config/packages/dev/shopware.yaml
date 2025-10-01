@@ -1,0 +1,19 @@
+shopware:
+    api:
+        api_browser:
+            auth_required: false
+    cache:
+        invalidation:
+            delay_enabled: false
+    media:
+        enable_url_upload_feature: true
+        enable_url_validation: false
+
+    profiler:
+        integrations: ['Symfony']
+
+    usage_data:
+        collection_enabled: true
+        gateway:
+            dispatch_enabled: false
+            base_uri: 'http://localhost:8888'

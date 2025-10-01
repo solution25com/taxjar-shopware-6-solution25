@@ -5,6 +5,7 @@ namespace solu1TaxJar\Core\TaxJar;
 use GuzzleHttp\Exception\GuzzleException;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
+use Shopware\Core\Content\Product\ProductCollection;
 use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
@@ -14,6 +15,11 @@ use GuzzleHttp\Psr7\Request as GRequest;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Psr\Cache\CacheItemPoolInterface;
+use Shopware\Core\Checkout\Customer\CustomerEntity;
+use Shopware\Core\System\Country\CountryEntity;
+use Shopware\Core\Framework\DataAbstractionLayer\Pricing\PriceCollection;
+use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 
 class Calculator
 {
@@ -22,15 +28,17 @@ class Calculator
     public const REQUEST_TYPE = 'Tax Calculation';
 
     public const VERSION = '1.10.4';
+
     public const LIVE_API_URL = 'https://api.taxjar.com/v2';
     public const SANDBOX_API_URL = 'https://api.sandbox.taxjar.com/v2';
+
     /**
      * @var Client
      */
     private $restClient;
 
     /**
-     * @var mixed
+     * @var string|null
      */
     private $salesChannelId;
 
@@ -40,12 +48,12 @@ class Calculator
     private $systemConfigService;
 
     /**
-     * @var EntityRepository
+     * @var TaxLogEntity
      */
-    private $taxJarLogRepository;
+    private $taxLogRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<ProductCollection>
      */
     private $productRepository;
 
@@ -61,55 +69,66 @@ class Calculator
 
     /**
      * @param SystemConfigService $systemConfigService
-     * @param EntityRepository $taxJarLogRepository
-     * @param EntityRepository $productRepository
+     * @param TaxLogEntity $taxLogRepository
+     * @param EntityRepository<ProductCollection> $productRepository
      * @param CacheItemPoolInterface $cache
      */
     public function __construct(
         SystemConfigService    $systemConfigService,
-        EntityRepository       $taxJarLogRepository,
+        TaxLogEntity       $taxLogRepository,
         EntityRepository       $productRepository,
         CacheItemPoolInterface $cache
     )
     {
         $this->restClient = new Client();
         $this->systemConfigService = $systemConfigService;
-        $this->taxJarLogRepository = $taxJarLogRepository;
+        $this->taxLogRepository = $taxLogRepository;
         $this->productRepository = $productRepository;
         $this->cache = $cache;
     }
 
     /**
-     * @param $lineItems
+     * @param array<int, array<string, mixed>> $lineItems
      * @param SalesChannelContext $context
      * @param Cart $cart
-     * @return array|false
+     * @return array<string, mixed>|false
      */
-    public function calculate($lineItems, SalesChannelContext $context, Cart $cart)
+    public function calculate(array $lineItems, SalesChannelContext $context, Cart $cart)
     {
         $this->salesChannelId = $context->getSalesChannelId();
         if ($this->_isActive()) {
-            if (!$context->getCustomer() || !$context->getCustomer()->getActiveShippingAddress()) {
+            $customer = $context->getCustomer();
+            if (!$customer instanceof CustomerEntity || !$customer->getActiveShippingAddress()) {
                 return [];
             }
 
-            $shippingAddress = $context->getCustomer()->getActiveShippingAddress();
+            $shippingAddress = $customer->getActiveShippingAddress();
+            $country = $shippingAddress->getCountry();
 
-            $stateCode = $shippingAddress->getCountryState() ?
-                explode('-', $shippingAddress->getCountryState()->getShortCode()) : '';
-            $stateName = $shippingAddress->getCountryState() ?
-                $shippingAddress->getCountryState()->getName() : '';
+            if (!$country instanceof CountryEntity) {
+                return [];
+            }
+
+            $countryState = $shippingAddress->getCountryState();
+
+            $stateCode = [];
+            $stateName = '';
+            if ($countryState) {
+                $stateCode = explode('-', $countryState->getShortCode());
+                $stateName = $countryState->getName();
+            }
+
             $shippingFromAddress = $this->getShippingOriginAddress();
             $this->cartTotal = 0;
             $lineItems = $this->processLinceItems($lineItems, $context);
 
             $cartInfo = [
-                "to_country" => $shippingAddress->getCountry()->getIso(),
+                "to_country" => $country->getIso(),
                 "to_zip" => $shippingAddress->getZipcode(),
                 "to_state" => isset($stateCode[1]) ? $stateCode[1] : $stateName,
                 "to_city" => $shippingAddress->getCity(),
                 "to_street" => $shippingAddress->getStreet(),
-                "amount" => $this->cartTotal ?: $cart->getPrice()->getTotalPrice(),
+                "amount" => $cart->getPrice()->getTotalPrice(),
                 "shipping" => $this->useIncludeShippingCostForTaxCalculation() ?
                     $cart->getShippingCosts()->getUnitPrice() : 0,
                 "line_items" => $lineItems
@@ -145,11 +164,11 @@ class Calculator
 
 
     /**
-     * @param $lineItems
+     * @param array<int, array<string, mixed>> $lineItems
      * @param SalesChannelContext $context
-     * @return array
+     * @return array<int, array<string, mixed>>
      */
-    private function processLinceItems($lineItems, SalesChannelContext $context)
+    private function processLinceItems(array $lineItems, SalesChannelContext $context): array
     {
         $useGrossPriceForCalculation = $this->useGrossPriceForTaxCalculation();
         foreach ($lineItems as $key => $productInfo) {
@@ -158,21 +177,23 @@ class Calculator
                 $product = $this->getProduct($productInfo['id'], $context);
                 if ($useGrossPriceForCalculation) {
                     $priceCollection = $product->getPrice();
-                    foreach ($priceCollection as $price) {
-                        if ($price->getGross()) {
-                            $lineItems[$key]['unit_price'] = $price->getGross();
-                            $this->cartTotal = $this->cartTotal + ($price->getGross() * $quantity);
+                    if ($priceCollection instanceof PriceCollection) {
+                        foreach ($priceCollection as $price) {
+                            if ($price->getGross()) {
+                                $lineItems[$key]['unit_price'] = $price->getGross();
+                                $this->cartTotal = $this->cartTotal + ($price->getGross() * $quantity);
+                            }
                         }
                     }
                 } else {
                     $this->cartTotal = $this->cartTotal + ($lineItems[$key]['unit_price'] * $quantity);
                 }
 
-              if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
-                $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
-              } else {
-                $productTaxCode = $this->getDefaultProductTaxCode();
-              }
+                $productTaxCode = $product->getCustomFields() ?
+                    ($product->getCustomFields()['product_tax_code_value'] ?? null) : null;
+                if (!$productTaxCode) {
+                    $productTaxCode = $this->getDefaultProductTaxCode();
+                }
                 $lineItems[$key]['product_tax_code'] = $productTaxCode;
             }
         }
@@ -186,28 +207,36 @@ class Calculator
      */
     private function getProduct(string $productId, SalesChannelContext $context): ProductEntity
     {
-        return $this->productRepository
+        $product = $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
             ->get($productId);
+
+        if (!$product instanceof ProductEntity) {
+            throw new \RuntimeException("Product with ID $productId not found.");
+        }
+
+        return $product;
     }
 
     /**
-     * @param $dataToLog
+     * @param array<string, mixed> $dataToLog
      * @param SalesChannelContext $context
      * @return void
      */
-    private function logRequestResponse($dataToLog, SalesChannelContext $context)
+    private function logRequestResponse(array $dataToLog, SalesChannelContext $context): void
     {
         if (!empty($dataToLog)) {
-            $this->taxJarLogRepository->create(
-                [$dataToLog], $context->getContext());
+            $this->taxLogRepository->create(
+                [$dataToLog],
+                $context->getContext()
+            );
         }
     }
 
     /**
      * @param SalesChannelContext $context
-     * @param array $orderDetail
-     * @return array|mixed|ResponseInterface|string
+     * @param array<string, mixed> $orderDetail
+     * @return array<array<string>|string>
      * @throws InvalidArgumentException
      * @throws GuzzleException
      */
@@ -215,24 +244,30 @@ class Calculator
     {
         $response = [];
         $debugMode = $this->isDebugModeOn();
+        $apiToken = $this->_taxJarApiToken();
+
+        // Ensure all header values are strings
         $headers = [
             'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-            "X-CSRF-Token" => $this->_taxJarApiToken()
+            'Authorization' => 'Bearer ' . ($apiToken ?? ''),
+            "X-CSRF-Token" => $apiToken ?? ''
         ];
+
         $customer = $context->getCustomer();
+
         $request = new GRequest(
             'POST',
             $this->_getApiEndPoint() . '/taxes',
             $headers,
-            json_encode($orderDetail)
+            json_encode($orderDetail) ?: ''
         );
-        if ($debugMode) {
+
+        if ($debugMode && $customer instanceof CustomerEntity) {
             $logInfo = [
                 'requestKey' => serialize($orderDetail),
                 'customerName' => $customer->getFirstName() . ' ' . $customer->getLastName(),
                 'customerEmail' => $customer->getEmail(),
-                'remoteIp' => !is_null($customer->getRemoteAddress()) ? $customer->getRemoteAddress() : '',
+                'remoteIp' => $customer->getRemoteAddress() ?? '',
                 'request' => json_encode($orderDetail),
                 'type' => self::REQUEST_TYPE
             ];
@@ -242,7 +277,7 @@ class Calculator
         } catch (\GuzzleHttp\Exception\ClientException $e) {
             $response = $e->getResponse();
             $responseBodyAsString = $response->getBody()->getContents();
-            if ($debugMode) {
+            if ($debugMode && isset($logInfo)) {
                 $logInfo['response'] = $responseBodyAsString;
                 $this->logRequestResponse($logInfo, $context);
             }
@@ -250,7 +285,7 @@ class Calculator
         }
         try {
             $response = $response->getBody()->getContents();
-            if ($debugMode) {
+            if ($debugMode && isset($logInfo)) {
                 $logInfo['response'] = $response;
                 $this->logRequestResponse($logInfo, $context);
             }
@@ -300,12 +335,13 @@ class Calculator
     /**
      * @return string|null
      */
-    private function _taxJarApiToken()
+    private function _taxJarApiToken(): ?string
     {
-        if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
-        }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        $token = $this->_isSandboxMode()
+            ? $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId)
+            : $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+
+        return $token && is_string($token) ? trim($token) : null;
     }
 
     /**
@@ -320,16 +356,22 @@ class Calculator
     }
 
     /**
-     * @return array
+     * @return array<string, string>
      */
     private function getShippingOriginAddress(): array
     {
+        $fromCountry = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId);
+        $fromZip = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId);
+        $fromState = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId);
+        $fromCity = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId);
+        $fromStreet = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId);
+
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => is_string($fromCountry) ? $fromCountry : '',
+            "from_zip" => is_string($fromZip) ? $fromZip : '',
+            "from_state" => is_string($fromState) ? $fromState : '',
+            "from_city" => is_string($fromCity) ? $fromCity : '',
+            "from_street" => is_string($fromStreet) ? $fromStreet : '',
         ];
     }
 
@@ -338,7 +380,8 @@ class Calculator
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        $taxCode = $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        return is_string($taxCode) ? $taxCode : '';
     }
 
     /**
@@ -350,7 +393,7 @@ class Calculator
     }
 
     /**
-     * @param $response
+     * @param mixed $response
      * @param string $cacheId
      * @return void
      * @throws InvalidArgumentException
@@ -365,10 +408,10 @@ class Calculator
 
     /**
      * @param string $cacheId
-     * @return array|mixed
+     * @return array<string, mixed>
      * @throws InvalidArgumentException
      */
-    private function getResponseFromCache(string $cacheId)
+    private function getResponseFromCache(string $cacheId): array
     {
         $response = $this->cache->getItem(self::CACHE_ID . hash('sha256', $cacheId))->get();
         if ($response === null) {
@@ -383,7 +426,12 @@ class Calculator
         return [];
     }
 
-    private function addRate(mixed $taxInformation, array $processedResponse): array
+    /**
+     * @param array<string, mixed> $taxInformation
+     * @param array<string, mixed> $processedResponse
+     * @return array<string, mixed>
+     */
+    private function addRate(array $taxInformation, array $processedResponse): array
     {
         if (isset($taxInformation['rate'])) {
             $processedResponse['rate'] = $taxInformation['rate'];

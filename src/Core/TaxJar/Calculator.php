@@ -176,11 +176,12 @@ class Calculator
                     $this->cartTotal = $this->cartTotal + ($lineItems[$key]['unit_price'] * $quantity);
                 }
 
-                $productTaxCode = $product->getCustomFields() ?
-                    $product->getCustomFields()['product_tax_code_value'] : Null;
-                if (!$productTaxCode) {
+                if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+                    $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+                } else {
                     $productTaxCode = $this->getDefaultProductTaxCode();
                 }
+
                 $lineItems[$key]['product_tax_code'] = $productTaxCode;
             }
         }

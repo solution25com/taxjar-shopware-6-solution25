@@ -11,6 +11,7 @@ use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
+use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
@@ -122,7 +123,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     public static function getSubscribedEvents(): array
     {
         return [
-            OrderEvents::ORDER_WRITTEN_EVENT => 'onOrderWritten',
+            'state_enter.order_delivery.state.shipped' => 'onOrderShipped',
             OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
             'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
             'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
@@ -130,22 +131,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param EntityWrittenEvent $event
+     * @param OrderStateMachineStateChangeEvent $event
      * @return void
      */
-    public function onOrderWritten(EntityWrittenEvent $event): void
+    public function onOrderShipped(OrderStateMachineStateChangeEvent $event): void
     {
         $this->context = $event->getContext();
         if (!$this->dispatched) {
-            $alreadyProcessedOrderId = [];
-            /** @todo Check already massactions for orders */
-            foreach ($event->getIds() as $orderId) {
-                if (!in_array($orderId, $alreadyProcessedOrderId)) {
-                    $this->createUpdateOrderTransaction($orderId, $event);
-                    $alreadyProcessedOrderId[] = $orderId;
-                }
-
-            }
+            $this->createOrderTransaction($event->getOrderId(), $event);
             $this->dispatched = true;
         }
     }
@@ -162,6 +155,10 @@ class TransactionSubscriber implements EventSubscriberInterface
             try {
                 $this->context = $event->getContext();
                 $method = 'DELETE';
+                if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
+                    return;
+                }
+
                 foreach ($event->getIds() as $orderId) {
                     $existTransactionId = $this->getExistTransactionId($orderId);
                     $logInfo = $this->getDeleteLogInfo($orderId);
@@ -287,7 +284,7 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param $event
      * @return void
      */
-    protected function createUpdateOrderTransaction(string $orderId, EntityWrittenEvent $event): void
+    protected function createOrderTransaction(string $orderId, OrderStateMachineStateChangeEvent $event): void
     {
         try {
             $order = $this->getOrder($orderId);
@@ -298,13 +295,6 @@ class TransactionSubscriber implements EventSubscriberInterface
             $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders';
             $method = 'POST';
             $requestType = self::ORDER_CREATE_REQUEST_TYPE;
-
-            if ($this->getOperation($event) === 'update') {
-                $method = 'PUT';
-                $taxJarOrderId = self::PREFIX . $order->getOrderNumber();
-                $apiEndpointUrl .= '/' . $taxJarOrderId;
-                $requestType = self::ORDER_UPDATE_REQUEST_TYPE;
-            }
 
             $this->salesChannelId = $order->getSalesChannelId();
 
@@ -540,6 +530,17 @@ class TransactionSubscriber implements EventSubscriberInterface
 
         $orderTotalAmount += $order->getShippingTotal();
 
+        $shippingTaxAmount = 0;
+        if($this->useIncludeShippingCostForTaxCalculation()) {
+            $shippingMethodCalculatedTax = $order->getShippingCosts()->getCalculatedTaxes();
+            foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
+                $shippingTaxAmount = $shippingTaxAmount + $methodCalculatedTax->getTax();
+            }
+        }
+
+        $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
+        $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
+
         /** @todo Maybe should use just orderNumber $transactionId */
         $transactionId = $this->getTransactionId($order);
         $shippingFromAddress = $this->getShippingOriginAddress();
@@ -548,6 +549,7 @@ class TransactionSubscriber implements EventSubscriberInterface
             [
                 'transaction_id' => $transactionId,
                 'transaction_date' => $order->getOrderDate()->format('Y/m/d'),
+                'customer_id' => $taxjarCustomerId,
                 'to_country' => $country,
                 'to_zip' => $shippingAddress ? $shippingAddress->getZipcode() : $billingAddress?->getZipcode(),
                 'to_state' => $state,
@@ -555,7 +557,7 @@ class TransactionSubscriber implements EventSubscriberInterface
                 'to_street' => $shippingAddress->getStreet(),
                 'amount' => $orderTotalAmount,
                 'shipping' => $order->getShippingTotal(),
-                'sales_tax' => $orderTaxAmount,
+                'sales_tax' => $orderTaxAmount + $shippingTaxAmount,
                 'line_items' => $lineItems
             ]
         );
@@ -570,26 +572,40 @@ class TransactionSubscriber implements EventSubscriberInterface
             $product = $this->productRepository
                 ->search(new Criteria([$lineItem->getProductId()]), $this->context)
                 ->get($lineItem->getProductId());
-            $productTaxCode = $product->getCustomFields() ?
-                $product->getCustomFields()['product_tax_code_value'] : Null;
+
+            $productTaxCode = null;
+            if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+                $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+            }
+
             if ($product->getParentId()) {
                 $parentProduct = $this->productRepository
                     ->search(new Criteria([$product->getParentId()]), $this->context)
                     ->get($product->getParentId());
-                $productTaxCode = $parentProduct->getCustomFields() ?
-                    $parentProduct->getCustomFields()['product_tax_code_value'] : Null;
+
+                if($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+                    $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
+                }
             }
             if (!$productTaxCode) {
                 $productTaxCode = $this->getDefaultProductTaxCode();
             }
-            $lineItems[] = [
+
+            $lineItem = [
                 'quantity' => $lineItem->getQuantity(),
                 'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
                 'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
                 'unit_price' => $lineItem->getUnitPrice(),
-                'product_tax_code' => $productTaxCode,
                 'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount()
             ];
+
+            // only send the code if it's set and it's not 'none'
+            if($productTaxCode && !strtolower($productTaxCode) == 'none') {
+                $lineItem['product_tax_code'] = $productTaxCode;
+            }
+
+            $lineItems[] = $lineItem;
+
         }
         return $lineItems;
     }
@@ -649,5 +665,10 @@ class TransactionSubscriber implements EventSubscriberInterface
             "from_city" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCity', $this->salesChannelId),
             "from_street" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromStreet', $this->salesChannelId),
         ];
+    }
+
+    private function useIncludeShippingCostForTaxCalculation(): int
+    {
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.includeShippingCost', $this->salesChannelId);
     }
 }

@@ -2,21 +2,36 @@
 
 declare(strict_types=1);
 
-namespace solu1TaxJar\Core\Checkout\Cart\Collector;
+namespace ITGCoTax\Core\Checkout\Cart\Collector;
 
 use Psr\Cache\CacheItemPoolInterface;
 use Shopware\Core\Checkout\Cart\Cart;
 use Shopware\Core\Checkout\Cart\CartBehavior;
+use Shopware\Core\Checkout\Cart\CartDataCollectorInterface;
 use Shopware\Core\Checkout\Cart\CartProcessorInterface;
 use Shopware\Core\Checkout\Cart\LineItem\CartDataCollection;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator;
+use Shopware\Core\Checkout\Cart\Price\Struct\QuantityPriceDefinition;
+use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 
 class AddTaxCollector implements CartProcessorInterface
 {
+    /**
+     * @var EntityRepository
+     */
+    private $overwritePriceRepository;
+
+    /**
+     * @var QuantityPriceCalculator
+     */
+    private $calculator;
+
     /**
      * @var EntityRepository
      */
@@ -48,21 +63,27 @@ class AddTaxCollector implements CartProcessorInterface
     private $cache;
 
     /**
+     * @param EntityRepository $overwritePriceRepository
      * @param EntityRepository $taxRepository
      * @param EntityRepository $taxProviderRepository
      * @param EntityRepository $taxJarLogRepository
      * @param EntityRepository $productRepository
      * @param SystemConfigService $systemConfigService
+     * @param QuantityPriceCalculator $calculator
      */
     public function __construct(
+        EntityRepository        $overwritePriceRepository,
         EntityRepository        $taxRepository,
         EntityRepository        $taxProviderRepository,
         EntityRepository        $taxJarLogRepository,
         EntityRepository        $productRepository,
         SystemConfigService     $systemConfigService,
+        QuantityPriceCalculator $calculator,
         CacheItemPoolInterface  $cache
     )
     {
+        $this->overwritePriceRepository = $overwritePriceRepository;
+        $this->calculator = $calculator;
         $this->taxRepository = $taxRepository;
         $this->taxProviderRepository = $taxProviderRepository;
         $this->systemConfigService = $systemConfigService;
@@ -74,12 +95,14 @@ class AddTaxCollector implements CartProcessorInterface
     private function getTaxProviderClass($taxRuleId, SalesChannelContext $context)
     {
         if ($taxRuleId) {
-            $criteria = new Criteria([$taxRuleId]);
+            $criteria = new Criteria();
+            $criteria->addFilter(new EqualsAnyFilter('id', [0 => $taxRuleId]));
             $taxRules = $this->taxRepository->search($criteria, $context->getContext());
             foreach ($taxRules as $taxRule) {
                 if ($taxRule->getExtension('taxExtension') &&
                     $taxProviderId = $taxRule->getExtension('taxExtension')->getProviderId()) {
-                    $criteria = new Criteria([$taxProviderId]);
+                    $criteria = new Criteria();
+                    $criteria->addFilter(new EqualsAnyFilter('id', [0 => $taxProviderId]));
                     $taxProviders = $this->taxProviderRepository->search($criteria, $context->getContext());
                     foreach ($taxProviders as $taxProvider) {
                         if ($taxProvider->getBaseClass()) {

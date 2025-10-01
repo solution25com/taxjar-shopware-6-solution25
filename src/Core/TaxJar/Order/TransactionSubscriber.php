@@ -1,15 +1,16 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Core\TaxJar\Order;
+namespace ITGCoTax\Core\TaxJar\Order;
 
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
-use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
+use ITGCoTax\Core\Content\TaxLog\TaxLogEntity;
+use ITGCoTax\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
-use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
@@ -18,7 +19,6 @@ use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
-use Shopware\Core\System\StateMachine\Event\StateMachineTransitionEvent;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use GuzzleHttp\Client;
@@ -26,7 +26,6 @@ use GuzzleHttp\Psr7\Request as GRequest;
 
 class TransactionSubscriber implements EventSubscriberInterface
 {
-
     public const ORDER_CREATE_REQUEST_TYPE = 'Order Create Transaction';
 
     public const ORDER_UPDATE_REQUEST_TYPE = 'Order Update Transaction';
@@ -94,7 +93,6 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @var EntityRepository
      */
     private  $stateRepository;
-    private  $orderTransactionRepository;
 
     /**
      * @param SystemConfigService $systemConfigService
@@ -110,8 +108,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         EntityRepository    $orderRepository,
         EntityRepository    $productRepository,
         EntityRepository    $countryRepository,
-        EntityRepository    $stateRepository,
-        EntityRepository $orderTransactionRepository
+        EntityRepository    $stateRepository
     )
     {
         $this->systemConfigService = $systemConfigService;
@@ -120,13 +117,12 @@ class TransactionSubscriber implements EventSubscriberInterface
         $this->productRepository = $productRepository;
         $this->countryRepository = $countryRepository;
         $this->stateRepository = $stateRepository;
-        $this->orderTransactionRepository = $orderTransactionRepository;
     }
 
     public static function getSubscribedEvents(): array
     {
         return [
-            StateMachineTransitionEvent::class => 'onStateMachineTransition',
+            OrderEvents::ORDER_WRITTEN_EVENT => 'onOrderWritten',
             OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
             'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
             'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
@@ -134,41 +130,24 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param StateMachineTransitionEvent $event
+     * @param EntityWrittenEvent $event
      * @return void
      */
-
-    public function onStateMachineTransition(StateMachineTransitionEvent $event): void
+    public function onOrderWritten(EntityWrittenEvent $event): void
     {
         $this->context = $event->getContext();
-        $nextState = $event->getToPlace()->getTechnicalName();
-        $fromPlace = $event->getFromPlace()->getTechnicalName();
-        $entityName = $event->getEntityName();
-        $transactionId = $event->getEntityId();
+        if (!$this->dispatched) {
+            $alreadyProcessedOrderId = [];
+            /** @todo Check already massactions for orders */
+            foreach ($event->getIds() as $orderId) {
+                if (!in_array($orderId, $alreadyProcessedOrderId)) {
+                    $this->createUpdateOrderTransaction($orderId, $event);
+                    $alreadyProcessedOrderId[] = $orderId;
+                }
 
-        if ($entityName !== "order_transaction") {
-            return;
+            }
+            $this->dispatched = true;
         }
-
-        $criteria = (new Criteria([$transactionId]))
-            ->addAssociation('paymentMethod')
-            ->addAssociation('order');
-
-        $orderTransaction = $this->orderTransactionRepository->search($criteria, $this->context)->first();
-        $orderId = $orderTransaction->getOrder()->getId();
-
-
-        if($nextState === 'paid'){
-            $this->createUpdateOrderTransaction($orderTransaction->getOrder()->getId());
-        }
-        if($fromPlace == 'paid' && $nextState === 'cancelled'){
-            $this->onOrderStateCancel($event, $orderId);
-
-        }
-        if($fromPlace == 'paid' && $nextState === 'refunded'){
-            $this->onOrderStateChange($event, $orderId);
-        }
-
     }
 
     /**
@@ -179,13 +158,10 @@ class TransactionSubscriber implements EventSubscriberInterface
     public function onOrderDeleted(EntityWrittenEvent $event): void
     {
         if (!$this->dispatched) {
+
             try {
                 $this->context = $event->getContext();
                 $method = 'DELETE';
-                if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
-                  return;
-                }
-
                 foreach ($event->getIds() as $orderId) {
                     $existTransactionId = $this->getExistTransactionId($orderId);
                     $logInfo = $this->getDeleteLogInfo($orderId);
@@ -218,13 +194,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param StateMachineTransitionEvent $event
+     * @param EntityWrittenEvent $event
      * @return void
      */
-    public function onOrderStateCancel(StateMachineTransitionEvent $event, string $orderId): void
+    public function onOrderStateCancel(OrderStateMachineStateChangeEvent $event): void
     {
         try {
             $this->context = $event->getContext();
+            $orderId = $event->getOrderId();
 
             $order = $this->getOrder($orderId);
             if (!$order) {
@@ -260,15 +237,16 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @param StateMachineTransitionEvent $event
+     * @param EntityWrittenEvent $event
      * @return void
      */
-    public function onOrderStateChange(StateMachineTransitionEvent $event, $orderId): void
+    public function onOrderStateChange(OrderStateMachineStateChangeEvent $event): void
     {
         try {
             $this->context = $event->getContext();
             $method = 'POST';
             $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
+            $orderId = $event->getOrderId();
             $order = $this->getOrder($orderId);
 
             if (!$order) {
@@ -309,10 +287,10 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param $event
      * @return void
      */
-    protected function createUpdateOrderTransaction(string $orderId): void
+    protected function createUpdateOrderTransaction(string $orderId, EntityWrittenEvent $event): void
     {
         try {
-            $order = $this->getOrder($orderId);;
+            $order = $this->getOrder($orderId);
             if (!$order) {
                 return;
             }
@@ -320,6 +298,13 @@ class TransactionSubscriber implements EventSubscriberInterface
             $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders';
             $method = 'POST';
             $requestType = self::ORDER_CREATE_REQUEST_TYPE;
+
+            if ($this->getOperation($event) === 'update') {
+                $method = 'PUT';
+                $taxJarOrderId = self::PREFIX . $order->getOrderNumber();
+                $apiEndpointUrl .= '/' . $taxJarOrderId;
+                $requestType = self::ORDER_UPDATE_REQUEST_TYPE;
+            }
 
             $this->salesChannelId = $order->getSalesChannelId();
 
@@ -345,14 +330,16 @@ class TransactionSubscriber implements EventSubscriberInterface
                 $logInfo['response'] = $response;
                 $this->logRequestResponse($logInfo);
             } catch (GuzzleException $e) {
-                $response = $e->getMessage();
-                $logInfo['response'] = $response;
+                $response = $e->getResponse();
+                $responseBodyAsString = $response->getBody()->getContents();
+                $logInfo['response'] = $responseBodyAsString;
                 $this->logRequestResponse($logInfo);
             }
         } catch (\Exception $e) {
             return;
         }
     }
+
 
     /**
      * @param $countryId
@@ -375,12 +362,13 @@ class TransactionSubscriber implements EventSubscriberInterface
      * @param $stateId
      * @return mixed|null
      */
-    protected function getCountryState($stateId): mixed
+    protected function getCountryState($stateId)
     {
         /** @var CountryStateEntity $country */
-      return $this->stateRepository
-          ->search(new Criteria([$stateId]), $this->context)
-          ->get($stateId);
+        $state = $this->stateRepository
+            ->search(new Criteria([$stateId]), $this->context)
+            ->get($stateId);
+        return $state;
     }
 
     /**
@@ -429,15 +417,15 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
     protected function _isActive(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.active', $this->salesChannelId);
     }
 
     protected function _taxJarApiToken()
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+            return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
     }
 
     /**
@@ -456,20 +444,20 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
     protected function _isSandboxMode(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
     }
 
     /**
-     * @return string
+     * @return int
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        return $this->systemConfigService->get('ITGCoTax.setting.defaultProductTaxCode', $this->salesChannelId);
     }
 
     private function getTransactionId(OrderEntity $order): string
     {
-        $configOrderId = $this->systemConfigService->get('solu1TaxJar.setting.orderId');
+        $configOrderId = $this->systemConfigService->get('ITGCoTax.setting.orderId');
 
         if ($configOrderId === 'orderId') {
             $orderId = $order->getId();
@@ -541,7 +529,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         $orderTotalAmount = $amounts['orderTotalAmount'];
         $orderTaxAmount = $amounts['orderTaxAmount'];
 
-        $lineItems = $this->getLineItems($order);;
+        $lineItems = $this->getLineItems($order);
 
         $shippingAddress = $order->getBillingAddress();
         $billingAddress = $order->getBillingAddress();
@@ -655,11 +643,11 @@ class TransactionSubscriber implements EventSubscriberInterface
     private function getShippingOriginAddress(): array
     {
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCountry', $this->salesChannelId),
+            "from_zip" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromZip', $this->salesChannelId),
+            "from_state" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromState', $this->salesChannelId),
+            "from_city" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCity', $this->salesChannelId),
+            "from_street" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromStreet', $this->salesChannelId),
         ];
     }
 }

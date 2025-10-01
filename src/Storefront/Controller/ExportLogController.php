@@ -1,11 +1,14 @@
 <?php declare(strict_types=1);
 
-namespace solu1TaxJar\Storefront\Controller;
+namespace ITGCoTax\Storefront\Controller;
 
 use Exception;
-use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
+use ITGCoTax\Core\Content\TaxLog\TaxLogEntity;
+use Psr\Http\Message\ResponseInterface;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Shopware\Core\Framework\Context;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
@@ -48,7 +51,7 @@ class ExportLogController
                     'orderId' => $taxJarLog->getOrderId()??'',
                     'remoteIp' => $taxJarLog->getRemoteIp()?? '',
                     'request' => str_replace('"', "'", $taxJarLog->getRequest()),
-                    'response' => str_replace('"', "'", $taxJarLog->getResponse()),
+                    'response' => str_replace('"', "'",$taxJarLog->getResponse()),
                     'createdAt' => $taxJarLog->getCreatedAt()->format(DATE_RFC3339_EXTENDED)
                 ];
             }

@@ -54,7 +54,7 @@ Component.register('sw-tax-log-module-list', {
 
     computed: {
         getRepository() {
-            return this.repositoryFactory.create('s25_taxjar_log');
+            return this.repositoryFactory.create('itg_taxjar_log');
         },
 
         getColumns() {
@@ -62,7 +62,7 @@ Component.register('sw-tax-log-module-list', {
         },
 
         listFilters() {
-            return this.filterFactory.create('s25_taxjar_log', {
+            return this.filterFactory.create('itg_taxjar_log', {
                 'tax-log-date-filter': {
                     property: 'createdAt',
                     dateType: 'datetime-local',

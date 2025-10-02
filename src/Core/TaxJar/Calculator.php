@@ -2,6 +2,7 @@
 
 namespace solu1TaxJar\Core\TaxJar;
 
+use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
@@ -18,8 +19,8 @@ use Psr\Cache\CacheItemPoolInterface;
 use Shopware\Core\Checkout\Customer\CustomerEntity;
 use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\Pricing\PriceCollection;
+use solu1TaxJar\Core\Content\TaxLog\TaxLogCollection;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
-use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 
 class Calculator
 {
@@ -48,7 +49,7 @@ class Calculator
     private $systemConfigService;
 
     /**
-     * @var TaxLogEntity
+     * @var EntityRepository<TaxLogCollection>
      */
     private $taxLogRepository;
 
@@ -69,13 +70,13 @@ class Calculator
 
     /**
      * @param SystemConfigService $systemConfigService
-     * @param TaxLogEntity $taxLogRepository
+     * @param EntityRepository<TaxLogCollection> $taxLogRepository
      * @param EntityRepository<ProductCollection> $productRepository
      * @param CacheItemPoolInterface $cache
      */
     public function __construct(
         SystemConfigService    $systemConfigService,
-        TaxLogEntity       $taxLogRepository,
+        EntityRepository       $taxLogRepository,
         EntityRepository       $productRepository,
         CacheItemPoolInterface $cache
     )
@@ -246,7 +247,6 @@ class Calculator
         $debugMode = $this->isDebugModeOn();
         $apiToken = $this->_taxJarApiToken();
 
-        // Ensure all header values are strings
         $headers = [
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . ($apiToken ?? ''),
@@ -274,7 +274,7 @@ class Calculator
         }
         try {
             $response = $this->restClient->send($request);
-        } catch (\GuzzleHttp\Exception\ClientException $e) {
+        } catch (ClientException $e) {
             $response = $e->getResponse();
             $responseBodyAsString = $response->getBody()->getContents();
             if ($debugMode && isset($logInfo)) {

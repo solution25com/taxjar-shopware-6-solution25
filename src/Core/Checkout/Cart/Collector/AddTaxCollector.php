@@ -153,12 +153,11 @@ class AddTaxCollector implements CartProcessorInterface
                         $shippingTaxFromServiceProvider = $lineItemsTax['shippingTax'];
                     }
 
+
                     $shippingCosts = $original->getShippingCosts();
-                    if ($shippingCosts instanceof CalculatedPrice) {
-                        $shippingMethodCalculatedTax = $shippingCosts->getCalculatedTaxes();
-                        foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
-                            $methodTaxAmount += $methodCalculatedTax->getTax();
-                        }
+                    $shippingMethodCalculatedTax = $shippingCosts->getCalculatedTaxes();
+                    foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
+                        $methodTaxAmount += $methodCalculatedTax->getTax();
                     }
 
                     foreach ($products as $product) {
@@ -192,14 +191,13 @@ class AddTaxCollector implements CartProcessorInterface
                         }
                     }
 
+
                     if (isset($lineItemsTax['shippingTax']) && $lineItemsTax['shippingTax']) {
                         $shippingCosts = $original->getShippingCosts();
-                        if ($shippingCosts instanceof CalculatedPrice) {
-                            $shippingCalculatedTaxes = $shippingCosts->getCalculatedTaxes();
-                            foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
-                                // As Shipping Cost is already included in Tax Calculation
-                                $shippingCalculatedTax->setTax((float)0);
-                            }
+                        $shippingCalculatedTaxes = $shippingCosts->getCalculatedTaxes();
+                        foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
+                            // As Shipping Cost is already included in Tax Calculation
+                            $shippingCalculatedTax->setTax((float)0);
                         }
                     }
                 }

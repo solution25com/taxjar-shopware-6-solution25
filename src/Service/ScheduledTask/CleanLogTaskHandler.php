@@ -17,17 +17,17 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
     private const LOG_RETENTION_PERIOD = 10;
 
     /**
-     * @var TaxLogCollection
+     * @var EntityRepository<TaxLogCollection>
      */
-    private TaxLogCollection  $logRepository;
+    private  $logRepository;
 
     /**
      * @param EntityRepository<ScheduledTaskCollection> $scheduledTaskRepository
-     * @param TaxLogCollection $logRepository
+     * @param EntityRepository<TaxLogCollection> $logRepository
      */
     public function __construct(
         EntityRepository $scheduledTaskRepository,
-        TaxLogCollection $logRepository,
+        EntityRepository $logRepository,
         LoggerInterface $exceptionLogger
     )
     {

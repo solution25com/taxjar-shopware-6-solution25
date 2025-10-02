@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace solu1TaxJar\Core\Content\TaxLog;
 
-use Shopware\Core\Framework\Context;
+
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCustomFieldsTrait;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityIdTrait;
@@ -52,11 +52,6 @@ class TaxLogEntity extends Entity
      * @var string
      */
     protected $orderId = '';
-
-    /**
-     * @var TaxLogEntity
-     */
-    protected mixed $taxLogRepository;
 
     public function getRequest(): string
     {
@@ -137,5 +132,6 @@ class TaxLogEntity extends Entity
     {
         $this->orderId = $orderId;
     }
+
 
 }

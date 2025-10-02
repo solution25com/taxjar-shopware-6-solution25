@@ -1,17 +1,11 @@
 <?php
-/**
- * Copyright ©2021 ITG Commerce Ltd., Inc. All rights reserved.
- * See COPYING.txt for license details.
- */
-
 declare(strict_types=1);
 
-namespace ITGCoTax\Core\Content\Extension;
+namespace solu1TaxJar\Core\Content\Extension;
 use Shopware\Core\System\Tax\TaxDefinition;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityExtension;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\OneToOneAssociationField;
 use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
-use ITGCoTax\Core\Content\Extension\TaxExtensionDefinition;
 class TaxExtension extends EntityExtension
 {
     /**

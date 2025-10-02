@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Migration;
+namespace solu1TaxJar\Migration;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
@@ -61,8 +61,8 @@ class Migration1654525494MyQuery extends MigrationStep
 
     /**
      * @param Connection $connection
-     * @return array
-     * @throws \Doctrine\DBAL\Exception
+     * @return string
+     * @throws Exception
      */
     private function createCustomFieldSet(Connection $connection)
     {
@@ -88,8 +88,8 @@ class Migration1654525494MyQuery extends MigrationStep
 
     /**
      * @param Connection $connection
-     * @return array
-     * @throws \Doctrine\DBAL\Exception
+     * @return string
+     * @throws Exception
      */
     private function createCustomField(Connection $connection, $customerFieldSetId)
     {
@@ -125,7 +125,7 @@ class Migration1654525494MyQuery extends MigrationStep
      * @param Connection $connection
      * @param $customerFieldSetId
      * @return string
-     * @throws \Doctrine\DBAL\Exception
+     * @throws Exception
      */
     private function createFieldRelation(Connection $connection, $customerFieldSetId)
     {

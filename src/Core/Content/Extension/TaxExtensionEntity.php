@@ -1,12 +1,7 @@
 <?php
-/**
- * Copyright ©2021 ITG Commerce Ltd., Inc. All rights reserved.
- * See COPYING.txt for license details.
-
- */
 declare(strict_types=1);
 
-namespace ITGCoTax\Core\Content\Extension;
+namespace solu1TaxJar\Core\Content\Extension;
 
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCustomFieldsTrait;

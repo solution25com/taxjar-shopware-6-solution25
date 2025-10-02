@@ -1,7 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Subscriber;
-
+namespace solu1TaxJar\Subscriber;
 use Shopware\Core\Checkout\Customer\CustomerEntity;
 use Shopware\Core\Checkout\Customer\CustomerEvents;
 use Shopware\Core\Framework\Api\Context\AdminApiSource;
@@ -170,9 +169,9 @@ class CustomerSubscriber implements EventSubscriberInterface
     private function _taxJarApiToken(): ?string
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
+            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
+        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
     }
 
     private function _getApiEndPoint(): string
@@ -185,7 +184,7 @@ class CustomerSubscriber implements EventSubscriberInterface
 
     private function _isSandboxMode(): bool
     {
-        return $this->systemConfigService->getBool('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
+        return $this->systemConfigService->getBool('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
 
     /**
@@ -193,6 +192,6 @@ class CustomerSubscriber implements EventSubscriberInterface
      */
     private function _isActive(): bool
     {
-        return $this->systemConfigService->getBool('ITGCoTax.setting.active', $this->salesChannelId);
+        return $this->systemConfigService->getBool('solu1TaxJar.setting.active', $this->salesChannelId);
     }
 }

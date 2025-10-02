@@ -1,7 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Migration;
-
+namespace solu1TaxJar\Migration;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
 use Shopware\Core\Framework\Migration\MigrationStep;

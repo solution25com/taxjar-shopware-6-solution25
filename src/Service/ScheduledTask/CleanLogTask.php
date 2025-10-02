@@ -1,6 +1,6 @@
 <?php declare(strict_types=1);
 
-namespace ITGCoTax\Service\ScheduledTask;
+namespace solu1TaxJar\Service\ScheduledTask;
 
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTask;
 
@@ -10,7 +10,7 @@ class CleanLogTask extends ScheduledTask
 
     public static function getTaskName(): string
     {
-        return 'itgcotax.clear_log_task';
+        return 's25cotax.clear_log_task';
     }
 
     /**

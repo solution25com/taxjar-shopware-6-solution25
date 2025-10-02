@@ -1,11 +1,11 @@
 <?php
-namespace ITGCoTax\Core\TaxJar;
+
+namespace solu1TaxJar\Core\TaxJar;
 
 use GuzzleHttp\Exception\GuzzleException;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
 use Shopware\Core\Content\Product\ProductEntity;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Shopware\Core\Checkout\Cart\Cart;
@@ -18,7 +18,7 @@ use Shopware\Core\Framework\Context;
 
 class Calculator
 {
-    private const CACHE_ID = 'itg_tax_jar_response_';
+    private const CACHE_ID = 's25_tax_jar_response_';
 
     public const REQUEST_TYPE = 'Tax Calculation';
 
@@ -279,7 +279,7 @@ class Calculator
      */
     private function _isSandboxMode(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.sandboxMode', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
 
     /**
@@ -287,7 +287,7 @@ class Calculator
      */
     private function useIncludeShippingCostForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.includeShippingCost', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
     }
 
     /**
@@ -295,7 +295,7 @@ class Calculator
      */
     private function useGrossPriceForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.useGrossPrice', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.useGrossPrice', $this->salesChannelId);
     }
 
     /**
@@ -303,7 +303,7 @@ class Calculator
      */
     private function _isActive(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.active', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
     }
 
     /**
@@ -312,9 +312,9 @@ class Calculator
     private function _taxJarApiToken()
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('ITGCoTax.setting.sandboxApiToken', $this->salesChannelId);
+            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
         }
-        return $this->systemConfigService->get('ITGCoTax.setting.liveApiToken', $this->salesChannelId);
+        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
     }
 
     /**
@@ -334,20 +334,20 @@ class Calculator
     private function getShippingOriginAddress(): array
     {
         return [
-            "from_country" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('ITGCoTax.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
+            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
+            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
+            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
+            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
         ];
     }
 
     /**
-     * @return int
+     * @return string
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('ITGCoTax.setting.defaultProductTaxCode', $this->salesChannelId);
+        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
     }
 
     /**
@@ -355,7 +355,7 @@ class Calculator
      */
     private function isDebugModeOn(): int
     {
-        return (int)$this->systemConfigService->get('ITGCoTax.setting.debug', $this->salesChannelId);
+        return (int)$this->systemConfigService->get('solu1TaxJar.setting.debug', $this->salesChannelId);
     }
 
     /**

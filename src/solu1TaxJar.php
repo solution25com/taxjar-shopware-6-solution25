@@ -1,19 +1,14 @@
 <?php
-/**
- * Copyright ©2021 ITG Commerce Ltd., Inc. All rights reserved.
- * See COPYING.txt for license details.
-
- */
 declare(strict_types=1);
 
-namespace ITGCoTax;
+namespace solu1TaxJar;
 
 use Shopware\Core\Framework\Plugin;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
 use Shopware\Core\Kernel;
 
-class ITGCoTax extends Plugin
+class solu1TaxJar extends Plugin
 {
     public function install(InstallContext $installContext): void
     {

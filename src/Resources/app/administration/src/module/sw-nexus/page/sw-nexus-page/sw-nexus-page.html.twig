@@ -1,20 +1,27 @@
 <sw-page>
   <template #content>
     <div v-if="isLoading">
-      <sw-loader size="50px">
-      </sw-loader>
+      <sw-loader size="50px" />
     </div>
+
     <div v-else>
+      <sw-alert
+              v-if="errorMessage"
+              variant="error"
+              :title="'Nexus Error'"
+              :showIcon="true"
+              class="nexus-error-alert">
+        {{ errorMessage }}
+      </sw-alert>
 
       <sw-data-grid
+              v-if="!errorMessage"
               :dataSource="regions"
               :columns="columns"
               :showSelection="false"
-              :showActions="false">
-      </sw-data-grid>
+              :showActions="false" />
 
-      <div class="nexus-status-wrapper">
-
+      <div class="nexus-status-wrapper" v-if="!errorMessage">
         <div v-if="regions.length > 0" class="success-nexus-alert">
           Nexus is connected
         </div>

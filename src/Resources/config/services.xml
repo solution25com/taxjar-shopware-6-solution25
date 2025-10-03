@@ -18,18 +18,18 @@
         <service id="solu1TaxJar\Core\Checkout\Cart\Collector\AddTaxCollector">
             <argument type="service" id="tax.repository" />
             <argument type="service" id="s25_tax_service_provider.repository" />
-            <argument type="service" id="s25_taxjar_log.repository" />
-            <argument type="service" id="product.repository" />
-            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
-            <argument type="service" id="cache.object"/>
+            <argument type="service" id="solu1TaxJar\Core\Tax\TaxCalculatorRegistry"/>
             <tag name="shopware.cart.processor" priority="4500" />
         </service>
+
         <service id="solu1TaxJar\Core\TaxJar\Calculator" public="true">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <argument type="service" id="s25_taxjar_log.repository" />
             <argument type="service" id="product.repository" />
             <argument type="service" id="cache.object"/>
+            <tag name="solu1.tax_calculator"/>
         </service>
+
         <service id="solu1TaxJar\Storefront\Controller\TestConnectionController" public="true">
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
@@ -38,6 +38,15 @@
         <service id="solu1TaxJar\Storefront\Controller\ExportLogController" public="true">
             <argument type="service" id="s25_taxjar_log.repository" />
         </service>
+
+        <service id="solu1TaxJar\Subscriber\CustomerSubscriber">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="customer.repository"/>
+            <argument type="service" id="http_client"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
         <service id="solu1TaxJar\Core\TaxJar\Order\TransactionSubscriber">
             <tag name="kernel.event_subscriber"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
@@ -46,7 +55,7 @@
             <argument type="service" id="product.repository" />
             <argument type="service" id="country.repository" />
             <argument type="service" id="country_state.repository" />
-            <argument type="service" id="order_transaction.repository" />
+            <argument type="service" id="solu1TaxJar\Service\ClientApiService"/>
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />
@@ -57,10 +66,18 @@
             <tag name="messenger.message_handler" />
         </service>
 
+        <service id="solu1TaxJar\Core\Tax\TaxCalculatorRegistry">
+            <argument type="tagged_iterator" tag="solu1.tax_calculator"/>
+        </service>
+
+        <service id="solu1TaxJar\Service\ClientApiService" public="true" />
+
+
         <service id="solu1TaxJar\Core\Api\Nexus\TaxJarNexusApiController" public="true">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
-            </call>        </service>
+            </call>
+        </service>
     </services>
 </container>

@@ -38,6 +38,7 @@ Component.register('sw-settings-taxjar', {
             let apiBasePath = Shopware.Context.api.basePath;
             let url = apiBasePath + "/api/_action/tax-jar/test-connection";
             let token = inputData["solu1TaxJar.setting.liveApiToken"];
+            let selectedCommitFlows = inputData["solu1TaxJar.setting.selectedCommitFlows"];
             if (inputData["solu1TaxJar.setting.sandboxMode"]) {
                 token = inputData["solu1TaxJar.setting.sandboxApiToken"];
             }
@@ -49,6 +50,7 @@ Component.register('sw-settings-taxjar', {
                 "from_state":inputData["solu1TaxJar.setting.shippingFromState"],
                 "from_city":inputData["solu1TaxJar.setting.shippingFromCity"],
                 "from_street":inputData["solu1TaxJar.setting.shippingFromStreet"],
+                "selectedCommitFlows":inputData["solu1TaxJar.setting.selectedCommitFlows"],
             });
             let header = {
                 method:"POST",
@@ -110,6 +112,12 @@ Component.register('sw-settings-taxjar', {
             if (!inputData["solu1TaxJar.setting.defaultProductTaxCode"]) {
                 this.createNotificationError({
                     message: 'Provide Valid Product Tax Code'
+                });
+                hasError = true;
+            }
+            if (!inputData["solu1TaxJar.setting.selectedCommitFlows"]) {
+                this.createNotificationError({
+                    message: 'Commit flow should be selected'
                 });
                 hasError = true;
             }

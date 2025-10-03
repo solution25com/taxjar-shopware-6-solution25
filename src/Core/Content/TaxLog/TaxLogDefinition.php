@@ -59,8 +59,6 @@ class TaxLogDefinition extends EntityDefinition
                 (new StringField('order_id', 'orderId'))->addFlags(new ApiAware()),
                 (new LongTextField('request', 'request'))->addFlags(new ApiAware()),
                 (new LongTextField('response', 'response'))->addFlags(new ApiAware()),
-                (new CreatedAtField()),
-                (new UpdatedAtField()),
             ]);
     }
 }

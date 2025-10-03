@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace solu1TaxJar\Core\Checkout\Cart\Collector;
 
-use Psr\Cache\CacheItemPoolInterface;
 use Shopware\Core\Checkout\Cart\Cart;
 use Shopware\Core\Checkout\Cart\CartBehavior;
 use Shopware\Core\Checkout\Cart\CartProcessorInterface;
@@ -13,7 +12,9 @@ use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
-use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Core\Content\Extension\TaxExtensionEntity;
+use solu1TaxJar\Core\Content\TaxProvider\TaxProviderEntity;
+use solu1TaxJar\Core\Tax\TaxCalculatorRegistry;
 
 class AddTaxCollector implements CartProcessorInterface
 {
@@ -27,139 +28,141 @@ class AddTaxCollector implements CartProcessorInterface
      */
     private $taxProviderRepository;
 
-    /**
-     * @var SystemConfigService
-     */
-    private $systemConfigService;
+    private TaxCalculatorRegistry $taxCalculatorRegistry;
 
-    /**
-     * @var EntityRepository
-     */
-    private $taxJarLogRepository;
-
-    /**
-     * @var EntityRepository
-     */
-    private $productRepository;
-
-    /**
-     * @var CacheItemPoolInterface
-     */
-    private $cache;
 
     /**
      * @param EntityRepository $taxRepository
      * @param EntityRepository $taxProviderRepository
-     * @param EntityRepository $taxJarLogRepository
-     * @param EntityRepository $productRepository
-     * @param SystemConfigService $systemConfigService
+     * @param TaxCalculatorRegistry $taxCalculatorRegistry
      */
     public function __construct(
         EntityRepository        $taxRepository,
         EntityRepository        $taxProviderRepository,
-        EntityRepository        $taxJarLogRepository,
-        EntityRepository        $productRepository,
-        SystemConfigService     $systemConfigService,
-        CacheItemPoolInterface  $cache
+        TaxCalculatorRegistry   $taxCalculatorRegistry
     )
     {
         $this->taxRepository = $taxRepository;
         $this->taxProviderRepository = $taxProviderRepository;
-        $this->systemConfigService = $systemConfigService;
-        $this->taxJarLogRepository = $taxJarLogRepository;
-        $this->productRepository = $productRepository;
-        $this->cache = $cache;
+        $this->taxCalculatorRegistry = $taxCalculatorRegistry;
     }
 
-    private function getTaxProviderClass($taxRuleId, SalesChannelContext $context)
+    private function getTaxProviderClass(string $taxRuleId, array $taxRules, array $taxProviders)
     {
-        if ($taxRuleId) {
-            $criteria = new Criteria([$taxRuleId]);
-            $taxRules = $this->taxRepository->search($criteria, $context->getContext());
-            foreach ($taxRules as $taxRule) {
-                if ($taxRule->getExtension('taxExtension') &&
-                    $taxProviderId = $taxRule->getExtension('taxExtension')->getProviderId()) {
-                    $criteria = new Criteria([$taxProviderId]);
-                    $taxProviders = $this->taxProviderRepository->search($criteria, $context->getContext());
-                    foreach ($taxProviders as $taxProvider) {
-                        if ($taxProvider->getBaseClass()) {
-                            $taxCalculatorClass = $taxProvider->getBaseClass();
-                            return new $taxCalculatorClass(
-                                $this->systemConfigService,
-                                $this->taxJarLogRepository,
-                                $this->productRepository,
-                                $this->cache
-                            );
-                        }
-                    }
-                }
-            }
+        if (!$taxRuleId || !isset($taxRules[$taxRuleId])) {
+            return false;
         }
-        return false;
+
+        $taxRule = $taxRules[$taxRuleId];
+        $extension = $taxRule->getExtension('taxExtension');
+
+        if (!$extension instanceof TaxExtensionEntity || !$extension->getProviderId()) {
+            return false;
+        }
+
+        $providerId = $extension->getProviderId();
+
+        if (!isset($taxProviders[$providerId])) {
+            return false;
+        }
+
+        $taxProvider = $taxProviders[$providerId];
+
+        if (!$taxProvider instanceof TaxProviderEntity || !$taxProvider->getBaseClass()) {
+            return false;
+        }
+
+        return $this->taxCalculatorRegistry->getCalculatorFor($taxProvider->getBaseClass());
     }
 
     public function process(CartDataCollection $data, Cart $original, Cart $toCalculate, SalesChannelContext $context, CartBehavior $behavior): void
     {
-        // get all product line items
         $products = $toCalculate->getLineItems()->filterType(LineItem::PRODUCT_LINE_ITEM_TYPE);
         $taxProviderMapping = [];
-        $lineItemsTax = [];
+
+        $taxIds = [];
         foreach ($products as $product) {
             $taxId = $product->getPayloadValue('taxId');
-            $taxProviderMapping[$taxId][] = [
-                "id" => $product->getReferencedId(),
-                "quantity" => $product->getPrice()->getQuantity(),
-                "unit_price" => $product->getPrice()->getUnitPrice(),
-                "discount" => 0
-            ];
+            if ($taxId) {
+                $taxIds[] = $taxId;
+                $taxProviderMapping[$taxId][] = [
+                    "id" => $product->getReferencedId(),
+                    "quantity" => $product->getPrice()->getQuantity(),
+                    "unit_price" => $product->getPrice()->getUnitPrice(),
+                    "discount" => 0
+                ];
+            }
         }
+
+        $taxCriteria = new Criteria(array_unique($taxIds));
+        $taxRules = $this->taxRepository->search($taxCriteria, $context->getContext())->getElements();
+
+        $providerIds = [];
+        foreach ($taxRules as $taxRule) {
+          $extension = $taxRule->getExtension('taxExtension');
+          if ($extension instanceof TaxExtensionEntity && $extension->getProviderId()) {
+            $providerIds[] = $extension->getProviderId();
+          }
+        }
+
+        $taxProviders = [];
+
+        if (!empty($providerIds)) {
+          $providerCriteria = new Criteria(array_unique($providerIds));
+          $taxProviders = $this->taxProviderRepository->search($providerCriteria, $context->getContext())->getElements();
+        }
+
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
-            $taxProviderClass = $this->getTaxProviderClass($taxId, $context);
+            $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);
             if ($taxProviderClass) {
-                $lineItems = [];
-                foreach ($requestDetails as $key => $lineItem) {
-                    $lineItems[] = $lineItem;
-                }
+                $lineItems = array_values($requestDetails);
                 $lineItemsTax = $taxProviderClass->calculate($lineItems, $context, $original);
                 $this->addRateToCart($lineItemsTax, $toCalculate);
+
                 if (!empty($lineItemsTax)) {
                     $shippingTaxFromServiceProvider = 0;
                     $methodTaxAmount = 0;
-                    if (isset($lineItemsTax['shippingTax']) && $lineItemsTax['shippingTax']) {
+
+                    if (!empty($lineItemsTax['shippingTax'])) {
                         $shippingTaxFromServiceProvider = $lineItemsTax['shippingTax'];
                     }
+
                     $shippingMethodCalculatedTax = $original->getShippingCosts()->getCalculatedTaxes();
                     foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
-                        $methodTaxAmount = $methodTaxAmount + $methodCalculatedTax->getTax();
+                        $methodTaxAmount += $methodCalculatedTax->getTax();
                     }
+
                     foreach ($products as $product) {
-                        if (isset($lineItemsTax[$product->getReferencedId()]) && $lineItemsTax[$product->getReferencedId()]) {
+                        $productId = $product->getReferencedId();
+                        if (!empty($lineItemsTax[$productId])) {
                             $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
                             foreach ($calculatedTaxes as $calculatedTax) {
-                                $taxAmount = $lineItemsTax[$product->getReferencedId()];
+                                $taxAmount = $lineItemsTax[$productId];
+
                                 if ($shippingTaxFromServiceProvider) {
-                                    $taxAmount = $taxAmount + $shippingTaxFromServiceProvider - $methodTaxAmount;
+                                    $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
                                     $shippingTaxFromServiceProvider = 0;
                                 }
+
                                 $calculatedTax->setTax($taxAmount);
+
                                 if (isset($lineItemsTax['rate'])) {
-                                    $calculatedTax->assign(
-                                        [
-                                            'taxRate' => (float)number_format(
-                                                (float)$lineItemsTax['rate'] * 100,
-                                                2,
-                                                '.',
-                                                '')
-                                        ]
-                                    );
+                                    $calculatedTax->assign([
+                                        'taxRate' => (float)number_format(
+                                            (float)$lineItemsTax['rate'] * 100,
+                                            2,
+                                            '.',
+                                            ''
+                                        )
+                                    ]);
                                 }
                             }
                         }
                     }
-                    if (isset($lineItemsTax['shippingTax']) && $lineItemsTax['shippingTax']) {
+
+                    if (!empty($lineItemsTax['shippingTax'])) {
                         $shippingCalculatedTaxes = $original->getShippingCosts()->getCalculatedTaxes();
                         foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
-                            //As Shipping Cost is already included in Tax Calculation
                             $shippingCalculatedTax->setTax((float)0);
                         }
                     }

@@ -13,11 +13,15 @@ class solu1TaxJar extends Plugin
     public function install(InstallContext $installContext): void
     {
         $migrationCollection = $installContext->getMigrationCollection();
-        foreach ($migrationCollection as $migration) {
+        $migrationSteps = $migrationCollection->getMigrationSteps();
+
+        foreach ($migrationSteps as $migration) {
             $migration->update(Kernel::getConnection());
         }
+
         parent::install($installContext);
     }
+
 
     public function uninstall(UninstallContext $uninstallContext): void
     {

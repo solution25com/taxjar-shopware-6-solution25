@@ -20,6 +20,16 @@ class TaxLogEntity extends Entity
     /**
      * @var string
      */
+    protected $requestKey = '';
+
+    /**
+     * @var string
+     */
+    protected $type = '';
+
+    /**
+     * @var string
+     */
     protected $customerName = '';
 
     /**
@@ -62,6 +72,26 @@ class TaxLogEntity extends Entity
         $this->request = $request;
     }
 
+    public function getRequestKey(): string
+    {
+        return (string)$this->requestKey;
+    }
+
+    public function setRequestKey(string $requestKey): void
+    {
+        $this->requestKey = $requestKey;
+    }
+
+    public function getType(): string
+    {
+        return (string)$this->type;
+    }
+
+    public function setType(string $type): void
+    {
+        $this->type = $type;
+    }
+
     public function getCustomerName(): string
     {
         return (string)$this->customerName;
@@ -94,7 +124,7 @@ class TaxLogEntity extends Entity
 
     public function getResponse(): string
     {
-        return (string) $this->response;
+        return (string)$this->response;
     }
 
     public function setResponse(string $response): void
@@ -104,7 +134,7 @@ class TaxLogEntity extends Entity
 
     public function getTransactionId(): string
     {
-        return (string) $this->transactionId;
+        return (string)$this->transactionId;
     }
 
     public function setTransactionId(string $transactionId): void
@@ -114,7 +144,7 @@ class TaxLogEntity extends Entity
 
     public function getOrderNumber(): string
     {
-        return (string) $this->orderNumber;
+        return (string)$this->orderNumber;
     }
 
     public function setOrderNumber(string $orderNumber): void
@@ -124,7 +154,7 @@ class TaxLogEntity extends Entity
 
     public function getOrderId(): string
     {
-        return (string) $this->orderId;
+        return (string)$this->orderId;
     }
 
     public function setOrderId(string $orderId): void

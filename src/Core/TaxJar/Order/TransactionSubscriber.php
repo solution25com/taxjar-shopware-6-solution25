@@ -25,6 +25,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Service\ClientApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Request as GRequest;
@@ -53,11 +54,6 @@ class TransactionSubscriber implements EventSubscriberInterface
    * @var bool
    */
   protected $dispatched = false;
-
-  /**
-   * @var mixed
-   */
-  protected $existTransactionId = null;
 
   /**
    * @var mixed
@@ -100,12 +96,19 @@ class TransactionSubscriber implements EventSubscriberInterface
   private  $stateRepository;
 
   /**
+   * @var ClientApiService
+   */
+  private ClientApiService $clientApiService;
+
+
+    /**
    * @param SystemConfigService $systemConfigService
    * @param EntityRepository $taxJarLogRepository
    * @param EntityRepository $orderRepository
    * @param EntityRepository $productRepository
    * @param EntityRepository $countryRepository
    * @param EntityRepository $stateRepository
+     * @param ClientApiService $clientApiService
    */
   public function __construct(
     SystemConfigService $systemConfigService,
@@ -114,6 +117,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     EntityRepository    $productRepository,
     EntityRepository    $countryRepository,
     EntityRepository    $stateRepository,
+    ClientApiService    $clientApiService
   )
   {
     $this->systemConfigService = $systemConfigService;
@@ -122,6 +126,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $this->productRepository = $productRepository;
     $this->countryRepository = $countryRepository;
     $this->stateRepository = $stateRepository;
+    $this->clientApiService = $clientApiService;
   }
 
   public static function getSubscribedEvents(): array
@@ -159,7 +164,6 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       try {
         $this->context = $event->getContext();
-        $method = 'DELETE';
         if($event->getContext()->getVersionId() !== Defaults::LIVE_VERSION){
           return;
         }
@@ -168,31 +172,27 @@ class TransactionSubscriber implements EventSubscriberInterface
           $existTransactionId = $this->getExistTransactionId($orderId);
           $logInfo = $this->getDeleteLogInfo($orderId);
           $orderId = $existTransactionId ?: $orderId;
-          $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $orderId;
 
-          $request = new GRequest(
-            $method,
-            $apiEndpointUrl,
+          $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $orderId;
+
+          $response = $this->clientApiService->sendRequest(
+            'DELETE',
+            $endpointUrl,
             $this->getHeaders(),
-            json_encode(['orderId' => $orderId])
+            ['orderId' => $orderId]
           );
-          try {
-            $response = (new Client())->send($request);
-            $response = $response->getBody()->getContents();
-            $logInfo['response'] = $response;
-            $this->logRequestResponse($logInfo);
-          } catch (ClientException $e) {
-            $response = $e->getResponse();
-            $responseBodyAsString = $response->getBody()->getContents();
-            $logInfo['response'] = $responseBodyAsString;
-            $this->logRequestResponse($logInfo);
-          }
+
+          $logInfo['response'] = $response['body'];
+          $this->logRequestResponse($logInfo);
         }
+
       } catch (\Exception $e) {
         return;
       }
+
       $this->dispatched = true;
     }
+
   }
 
   /**
@@ -209,30 +209,22 @@ class TransactionSubscriber implements EventSubscriberInterface
       if (!$order) {
         return;
       }
+
       $existTransactionId = $this->getExistTransactionId($orderId);
       $logInfo = $this->getDeleteLogInfo($orderId);
       $orderId = $existTransactionId ?: $orderId;
 
-      $method = 'DELETE';
-      $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders' . '/' . $orderId;
+      $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $orderId;
 
-      $request = new GRequest(
-        $method,
-        $apiEndpointUrl,
+      $response = $this->clientApiService->sendRequest(
+        'DELETE',
+        $endpointUrl,
         $this->getHeaders(),
-        json_encode(['orderId' => $orderId])
+        ['orderId' => $orderId]
       );
-      try {
-        $response = (new Client())->send($request);
-        $response = $response->getBody()->getContents();
-        $logInfo['response'] = $response;
-        $this->logRequestResponse($logInfo);
-      } catch (ClientException $e) {
-        $response = $e->getResponse();
-        $responseBodyAsString = $response->getBody()->getContents();
-        $logInfo['response'] = $responseBodyAsString;
-        $this->logRequestResponse($logInfo);
-      }
+
+      $logInfo['response'] = $response['body'];
+      $this->logRequestResponse($logInfo);
     } catch (\Exception $e) {
       return;
     }
@@ -246,11 +238,8 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     try {
       $this->context = $event->getContext();
-      $method = 'POST';
-      $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
       $orderId = $event->getOrderId();
       $order = $this->getOrder($orderId);
-
       if (!$order) {
         return;
       }
@@ -262,23 +251,18 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $logInfo = $this->getLogInfo($order, $orderDetail, self::ORDER_REFUND_REQUEST_TYPE);
 
-      $request = new GRequest(
-        $method,
-        $apiEndpointUrl,
+      $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
+
+      $response = $this->clientApiService->sendRequest(
+        'POST',
+        $endpointUrl,
         $this->getHeaders(),
-        json_encode($orderDetail)
+        $orderDetail
       );
-      try {
-        $response = (new Client())->send($request);
-        $response = $response->getBody()->getContents();
-        $logInfo['response'] = $response;
-        $this->logRequestResponse($logInfo);
-      } catch (ClientException $e) {
-        $response = $e->getResponse();
-        $responseBodyAsString = $response->getBody()->getContents();
-        $logInfo['response'] = $responseBodyAsString;
-        $this->logRequestResponse($logInfo);
-      }
+
+      $logInfo['response'] = $response['body'];
+      $this->logRequestResponse($logInfo);
+
     } catch (\Exception $e) {
       return;
     }
@@ -298,11 +282,8 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders';
-      $method = 'POST';
       $requestType = self::ORDER_CREATE_REQUEST_TYPE;
-
       $this->salesChannelId = $order->getSalesChannelId();
-
       $orderDetail = $this->getOrderDetail($order);
 
       if ($this->isDuplicateRequest(serialize($orderDetail))) {
@@ -311,25 +292,15 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $logInfo = $this->getLogInfo($order, $orderDetail, $requestType);
 
-      $request = new GRequest(
-        $method,
+      $response = $this->clientApiService->sendOrderTransaction(
         $apiEndpointUrl,
-        $this->getHeaders(),
-        json_encode($orderDetail)
+        $orderDetail,
+        $this->getHeaders()
       );
 
-      try {
-        $client = new Client();
-        $response = $client->send($request);
-        $response = $response->getBody()->getContents();
-        $logInfo['response'] = $response;
-        $this->logRequestResponse($logInfo);
-      } catch (ClientException $e) {
-        $response = $e->getResponse();
-        $responseBodyAsString = $response->getBody()->getContents();
-        $logInfo['response'] = $responseBodyAsString;
-        $this->logRequestResponse($logInfo);
-      }
+      $logInfo['response'] = $response['body'];
+      $this->logRequestResponse($logInfo);
+
     } catch (\Exception $e) {
       return;
     }

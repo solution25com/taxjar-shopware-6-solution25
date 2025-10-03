@@ -99,14 +99,18 @@ class AddTaxCollector implements CartProcessorInterface
 
         $providerIds = [];
         foreach ($taxRules as $taxRule) {
-            $extension = $taxRule->getExtension('taxExtension');
-            if ($extension instanceof TaxExtensionEntity && $extension->getProviderId()) {
-                $providerIds[] = $extension->getProviderId();
-            }
+          $extension = $taxRule->getExtension('taxExtension');
+          if ($extension instanceof TaxExtensionEntity && $extension->getProviderId()) {
+            $providerIds[] = $extension->getProviderId();
+          }
         }
 
-        $providerCriteria = new Criteria(array_unique($providerIds));
-        $taxProviders = $this->taxProviderRepository->search($providerCriteria, $context->getContext())->getElements();
+        $taxProviders = [];
+
+        if (!empty($providerIds)) {
+          $providerCriteria = new Criteria(array_unique($providerIds));
+          $taxProviders = $this->taxProviderRepository->search($providerCriteria, $context->getContext())->getElements();
+        }
 
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
             $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);

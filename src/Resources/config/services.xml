@@ -46,6 +46,7 @@
             <argument type="service" id="product.repository" />
             <argument type="service" id="country.repository" />
             <argument type="service" id="country_state.repository" />
+            <argument type="service" id="solu1TaxJar\Service\ClientApiService"/>
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />
@@ -60,10 +61,14 @@
             <argument type="tagged_iterator" tag="solu1.tax_calculator"/>
         </service>
 
+        <service id="solu1TaxJar\Service\ClientApiService" public="true" />
+
+
         <service id="solu1TaxJar\Core\Api\Nexus\TaxJarNexusApiController" public="true">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
-            </call>        </service>
+            </call>
+        </service>
     </services>
 </container>

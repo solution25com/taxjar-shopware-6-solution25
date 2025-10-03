@@ -4,13 +4,11 @@ declare(strict_types=1);
 namespace solu1TaxJar\Core\Content\Extension;
 
 use Shopware\Core\Framework\DataAbstractionLayer\EntityDefinition;
-use Shopware\Core\Framework\DataAbstractionLayer\Field\CreatedAtField;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\FkField;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\Flag\PrimaryKey;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\Flag\Required;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\IdField;
 use Shopware\Core\Framework\DataAbstractionLayer\Field\OneToOneAssociationField;
-use Shopware\Core\Framework\DataAbstractionLayer\Field\UpdatedAtField;
 use Shopware\Core\Framework\DataAbstractionLayer\FieldCollection;
 use Shopware\Core\System\Tax\TaxDefinition;
 use solu1TaxJar\Core\Content\TaxProvider\TaxProviderDefinition;
@@ -35,8 +33,6 @@ class TaxExtensionDefinition extends EntityDefinition
             (new IdField('id', 'id'))->addFlags(new Required(), new PrimaryKey()),
             new FkField('tax_id', 'taxId', TaxDefinition::class),
             (new IdField('provider_id', 'providerId')),
-            (new CreatedAtField()),
-            (new UpdatedAtField()),
             new OneToOneAssociationField(
                 'tax', 'tax_id',
                 'id', TaxDefinition::class,

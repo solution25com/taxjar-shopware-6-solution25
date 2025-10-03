@@ -1,7 +1,7 @@
 const {Component, Mixin} = Shopware;
 const {Criteria} = Shopware.Data;
 
-import template from './tax-jar-log-list.html.twig'; // template which will show data
+import template from './tax-jar-log-list.html.twig';
 
 Component.register('sw-tax-log-module-list', {
     template,
@@ -214,7 +214,7 @@ Component.register('sw-tax-log-module-list', {
                     sortable: true,
                 },
                 {
-                    property: 'type',  // column property
+                    property: 'type',
                     dataIndex: 'type',
                     label: this.$t('sw-tax-log-module.list.requestType'),
                     allowResize: true,
@@ -235,30 +235,30 @@ Component.register('sw-tax-log-module-list', {
                     sortable: true,
                 },
                 {
-                    property: 'customerName',  // column property
+                    property: 'customerName',
                     dataIndex: 'customerName',
-                    label: this.$t('sw-tax-log-module.list.customerName'), // column label (snippets used for labels)
+                    label: this.$t('sw-tax-log-module.list.customerName'),
                     allowResize: true,
                     sortable: true,
                 },
                 {
-                    property: 'customerEmail',  // column property
+                    property: 'customerEmail',
                     dataIndex: 'customerEmail',
-                    label: this.$t('sw-tax-log-module.list.customerEmail'), // column label (snippets used for labels)
+                    label: this.$t('sw-tax-log-module.list.customerEmail'),
                     allowResize: true,
                     sortable: true,
                 },
                 {
-                    property: 'remoteIp',  // column property
+                    property: 'remoteIp',
                     dataIndex: 'remoteIp',
-                    label: this.$t('sw-tax-log-module.list.remoteIp'), // column label (snippets used for labels)
+                    label: this.$t('sw-tax-log-module.list.remoteIp'),
                     allowResize: true,
                     sortable: true,
                 },
                 {
-                    property: 'request',  // column property
+                    property: 'request',
                     dataIndex: 'request',
-                    label: this.$t('sw-tax-log-module.list.titleColumn'), // column label (snippets used for labels)
+                    label: this.$t('sw-tax-log-module.list.titleColumn'),
                     allowResize: true,
                     sortable: true,
                 },

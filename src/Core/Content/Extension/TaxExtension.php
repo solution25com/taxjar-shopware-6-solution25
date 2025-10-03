@@ -28,4 +28,9 @@ class TaxExtension extends EntityExtension
     {
         return TaxDefinition::class;
     }
+
+    public function getEntityName(): string
+    {
+      return 'tax';
+    }
 }

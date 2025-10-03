@@ -19,7 +19,7 @@
             "en-GB": "TaxJar Sales Tax Module for Shopware 6"
         },
         "description": {
-            "de-DE": "TaxJar Sales Tax Modul für Shopware 6, das Steuerberechnungen automatisiert, Nexus-Regionen unterstützt, Transaktionen protokolliert und die Einhaltung der Vorschriften in verschiedenen Bundesstaaten und Ländern gewährleistet.",
+            "de-DE": "TaxJar Sales Tax Modul für Shopware 6, das Steuerberechnungen automatisiert, Nexus-Regionen unterstützt, Transaktionen erfasst und die Einhaltung gesetzlicher Vorgaben sichert.",
             "en-GB": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries."
         },
         "manufacturerLink": {

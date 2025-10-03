@@ -64,19 +64,19 @@ class TaxJarNexusApiController extends AbstractController
   }
 
 
-  protected function _taxJarApiToken()
+  private function _taxJarApiToken()
   {
     if ($this->_isSandboxMode()) {
       return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken');
     }
     return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken');
   }
-  protected function _isSandboxMode(): int
+  private function _isSandboxMode(): int
   {
     return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode');
   }
 
-  protected function _getApiEndPoint(): string
+  private function _getApiEndPoint(): string
   {
     if ($this->_isSandboxMode()) {
       return self::SANDBOX_API_URL;

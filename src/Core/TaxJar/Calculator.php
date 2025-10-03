@@ -14,9 +14,9 @@ use GuzzleHttp\Psr7\Request as GRequest;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Psr\Cache\CacheItemPoolInterface;
-use Shopware\Core\Framework\Context;
+use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
 
-class Calculator
+class Calculator implements TaxCalculatorInterface
 {
     private const CACHE_ID = 's25_tax_jar_response_';
 
@@ -80,13 +80,25 @@ class Calculator
         $this->cache = $cache;
     }
 
+    public function supports(string $baseClass): bool
+    {
+        return static::class === $baseClass;
+    }
+
+    public function calculate(array $lineItems, SalesChannelContext $context, Cart $original): array
+    {
+        $result = $this->calculateTax($lineItems, $context, $original);
+
+        return is_array($result) ? $result : [];
+    }
+
     /**
      * @param $lineItems
      * @param SalesChannelContext $context
      * @param Cart $cart
      * @return array|false
      */
-    public function calculate($lineItems, SalesChannelContext $context, Cart $cart)
+    public function calculateTax($lineItems, SalesChannelContext $context, Cart $cart): false|array
     {
         $this->salesChannelId = $context->getSalesChannelId();
         if ($this->_isActive()) {
@@ -103,6 +115,7 @@ class Calculator
             $shippingFromAddress = $this->getShippingOriginAddress();
             $this->cartTotal = 0;
             $lineItems = $this->processLinceItems($lineItems, $context);
+            $priceAfterProcessLineItems = $this->cartTotal;
 
             $customFields = $context->getCustomer()->getCustomFields() ?? [];
             $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
@@ -110,10 +123,10 @@ class Calculator
             $cartInfo = [
                 "to_country" => $shippingAddress->getCountry()->getIso(),
                 "to_zip" => $shippingAddress->getZipcode(),
-                "to_state" => isset($stateCode[1]) ? $stateCode[1] : $stateName,
+                "to_state" => $stateCode[1] ?? $stateName,
                 "to_city" => $shippingAddress->getCity(),
                 "to_street" => $shippingAddress->getStreet(),
-                "amount" => $this->cartTotal ? $this->cartTotal : $cart->getPrice()->getTotalPrice(),
+                "amount" => ($priceAfterProcessLineItems > 0) ? $this->cartTotal : $cart->getPrice()->getTotalPrice(),
                 "shipping" => $this->useIncludeShippingCostForTaxCalculation() ?
                     $cart->getShippingCosts()->getUnitPrice() : 0,
                 "line_items" => $lineItems,
@@ -141,8 +154,7 @@ class Calculator
                 if ($this->useIncludeShippingCostForTaxCalculation()) {
                     if (isset($taxInformation['breakdown']['shipping']) &&
                         ($shippingTax = $taxInformation['breakdown']['shipping'])) {
-                        $processedResponse['shippingTax'] = isset($shippingTax['tax_collectable']) ?
-                            $shippingTax['tax_collectable'] : 0;
+                        $processedResponse['shippingTax'] = $shippingTax['tax_collectable'] ?? 0;
                     }
                 }
                 return $processedResponse;
@@ -150,7 +162,6 @@ class Calculator
         }
         return false;
     }
-
 
     /**
      * @param $lineItems
@@ -193,7 +204,7 @@ class Calculator
      * @param SalesChannelContext $context
      * @return ProductEntity
      */
-    private function getProduct(string $productId, SalesChannelContext $context): ProductEntity
+    private function getProduct(string $productId, SalesChannelContext $context) : ProductEntity
     {
         return $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
@@ -377,7 +388,7 @@ class Calculator
      * @return array|mixed
      * @throws InvalidArgumentException
      */
-    private function getResponseFromCache(string $cacheId)
+    private function getResponseFromCache(string $cacheId): mixed
     {
         $response = $this->cache->getItem(self::CACHE_ID . hash('sha256', $cacheId))->get();
         if ($response === null) {
@@ -400,4 +411,5 @@ class Calculator
 
         return $processedResponse;
     }
+
 }

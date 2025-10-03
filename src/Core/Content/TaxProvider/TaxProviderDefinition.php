@@ -39,8 +39,6 @@ class TaxProviderDefinition extends EntityDefinition
         (new IdField('id', 'id'))->addFlags(new PrimaryKey(), new Required()),
         (new StringField('name', 'name'))->addFlags(new ApiAware()),
         (new StringField('base_class', 'baseClass'))->addFlags(new ApiAware()),
-        (new CreatedAtField()),
-        (new UpdatedAtField()),
       ]);
   }
 }

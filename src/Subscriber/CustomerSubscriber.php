@@ -4,10 +4,10 @@ namespace solu1TaxJar\Subscriber;
 use Shopware\Core\Checkout\Customer\CustomerEntity;
 use Shopware\Core\Checkout\Customer\CustomerEvents;
 use Shopware\Core\Framework\Api\Context\AdminApiSource;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
 use Shopware\Core\Framework\Uuid\Uuid;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -62,19 +62,13 @@ class CustomerSubscriber implements EventSubscriberInterface
         ]);
 
         $customerIds = $event->getIds();
-        $criteria = new Criteria();
-        $criteria->addFilter(new EqualsAnyFilter('id', $customerIds));
+        $criteria = new Criteria($customerIds);
 
         try {
-            /** @var CustomerEntity[] $customers */
+            /** @var CustomerEntity[]|EntityCollection $customers */
             $customers = $this->customerRepository->search($criteria, $context)->getEntities();
 
-            if (empty($customers)) {
-                $this->logger->warning('TaxJar Subscriber: No customers found for IDs', [
-                    'customerIds' => $customerIds,
-                ]);
-                return;
-            }
+            $customerUpdates = [];
 
             foreach ($customers as $customer) {
                 $this->salesChannelId = $customer->getSalesChannelId();
@@ -133,15 +127,12 @@ class CustomerSubscriber implements EventSubscriberInterface
                     $this->logger->info('TaxJar Customer Response', $response->toArray());
 
                     if ($isNewCustomer) {
-                        // Save the customer ID to the taxjar_customer_id custom field
-                        $this->customerRepository->update([
-                            [
-                                'id' => $customer->getId(),
-                                'customFields' => array_merge($customFields, ['taxjar_customer_id' => $customerId]),
-                            ],
-                        ], $context);
+                        $customerUpdates[] = [
+                            'id' => $customer->getId(),
+                            'customFields' => array_merge($customFields, ['taxjar_customer_id' => $customerId]),
+                        ];
 
-                        $this->logger->info('TaxJar Subscriber: Created customer {customerId} in TaxJar and saved to custom field', [
+                        $this->logger->info('TaxJar Subscriber: Created customer {customerId} in TaxJar and scheduled update to custom field', [
                             'customerId' => $customerId,
                         ]);
                     } else {
@@ -150,13 +141,18 @@ class CustomerSubscriber implements EventSubscriberInterface
                         ]);
                     }
                 } catch (Throwable $e) {
-                        $this->logger->error('TaxJar Subscriber: Failed to sync customer {customerId} to TaxJar: {message}', [
-                            'customerId' => $customerId,
-                            'message' => $e->getMessage(),
-                            'code' => $e->getCode(),
-                        ]);
+                    $this->logger->error('TaxJar Subscriber: Failed to sync customer {customerId} to TaxJar: {message}', [
+                        'customerId' => $customerId,
+                        'message' => $e->getMessage(),
+                        'code' => $e->getCode(),
+                    ]);
                 }
             }
+
+            if (!empty($customerUpdates)) {
+                $this->customerRepository->update($customerUpdates, $context);
+            }
+
         } catch (Throwable $e) {
             $this->logger->error('TaxJar Subscriber: Failed to search customers: {message}', [
                 'message' => $e->getMessage(),
@@ -188,7 +184,7 @@ class CustomerSubscriber implements EventSubscriberInterface
     }
 
     /**
-     * @return int
+     * @return bool
      */
     private function _isActive(): bool
     {

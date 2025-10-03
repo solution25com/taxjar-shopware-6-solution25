@@ -45,6 +45,7 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
     public function run(): void
     {
         $deletable = [];
+        // default context is used to avoid issues with the context in the scheduled task handler
         $context = Context::createDefaultContext();
         $criteria = new Criteria();
         $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::DESCENDING));

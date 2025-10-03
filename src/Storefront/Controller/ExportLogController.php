@@ -2,7 +2,6 @@
 
 namespace solu1TaxJar\Storefront\Controller;
 
-use Exception;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
 use Symfony\Component\HttpFoundation\Request;
@@ -15,21 +14,16 @@ use Symfony\Component\Routing\Attribute\Route;
 class ExportLogController
 {
     /**
-     * @var EntityRepository
-     */
-    private $taxJarLogRepository;
-
-    /**
      * @param EntityRepository $taxJarLogRepository
      */
-    public function __construct(
-        EntityRepository $taxJarLogRepository
-    )
+    private EntityRepository $taxJarLogRepository;
+
+    public function __construct(EntityRepository $taxJarLogRepository)
     {
         $this->taxJarLogRepository = $taxJarLogRepository;
     }
 
-    #[Route(path: '/api/_action/tax-jar/export-log', name: 'frontend.taxjar.export-log', methods: ['GET'], defaults: ['XmlHttpRequest' => true, 'csrf_protected' => false])]
+    #[Route(path: '/api/_action/tax-jar/export-log', name: 'frontend.taxjar.export-log', defaults: ['XmlHttpRequest' => true, 'csrf_protected' => false], methods: ['GET'])]
     public function exportLog(Request $request, Context $context): JsonResponse
     {
         $response = [];
@@ -44,9 +38,9 @@ class ExportLogController
                 $response[] = [
                     'customerName' => $taxJarLog->getCustomerName(),
                     'customerEmail' => $taxJarLog->getCustomerEmail(),
-                    'orderNumber' => $taxJarLog->getOrderNumber()??'',
-                    'orderId' => $taxJarLog->getOrderId()??'',
-                    'remoteIp' => $taxJarLog->getRemoteIp()?? '',
+                    'orderNumber' => $taxJarLog->getOrderNumber(),
+                    'orderId' => $taxJarLog->getOrderId(),
+                    'remoteIp' => $taxJarLog->getRemoteIp(),
                     'request' => str_replace('"', "'", $taxJarLog->getRequest()),
                     'response' => str_replace('"', "'", $taxJarLog->getResponse()),
                     'createdAt' => $taxJarLog->getCreatedAt()->format(DATE_RFC3339_EXTENDED)

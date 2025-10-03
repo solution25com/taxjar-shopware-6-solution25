@@ -190,6 +190,7 @@ class Calculator implements TaxCalculatorInterface
                 if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
                     $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
                 } else {
+                    // let the value to get default from configs check that in subscriber
                     $productTaxCode = $this->getDefaultProductTaxCode();
                 }
 

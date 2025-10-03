@@ -49,6 +49,26 @@
             <defaultValue>1</defaultValue>
             <label lang="de-DE">Include Shipping Cost For Calculation</label>
         </input-field>
+        <input-field type="single-select">
+            <name>selectedCommitFlows</name>
+            <options>
+                <option>
+                    <id>ship</id>
+                    <name>Order Shipped</name>
+                    <name lang="de-DE">Order Shipped</name>
+                </option>
+                <option>
+                    <id>paid</id>
+                    <name>Order paid</name>
+                    <name lang="de-DE">Order paid</name>
+                </option>
+            </options>
+            <defaultValue>orderId</defaultValue>
+            <label>Commit Tax flow *</label>
+            <helpText>
+                Choose when to commit tax to TaxJar: either when the order is paid (Order Paid) or when it is shipped (Order Shipped).
+            </helpText>            <required>true</required>
+        </input-field>
         <input-field type="text">
             <name>shippingFromStreet</name>
             <label>Shipping From Street</label>

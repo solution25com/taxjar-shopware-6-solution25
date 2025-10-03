@@ -32,8 +32,8 @@ class CustomerSubscriber implements EventSubscriberInterface
         HttpClientInterface $httpClient,
         LoggerInterface $logger
     ) {
-        $this->customerRepository = $customerRepository;
         $this->systemConfigService = $systemConfigService;
+        $this->customerRepository = $customerRepository;
         $this->httpClient = $httpClient;
         $this->logger = $logger;
         $this->salesChannelId = null;

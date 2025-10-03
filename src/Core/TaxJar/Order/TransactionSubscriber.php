@@ -3,9 +3,7 @@
 namespace solu1TaxJar\Core\TaxJar\Order;
 
 use Exception;
-use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
-use Shopware\Core\Content\Product\ProductCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
 use Shopware\Core\System\StateMachine\Event\StateMachineTransitionEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
@@ -27,8 +25,6 @@ use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Service\ClientApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Request as GRequest;
 
 class TransactionSubscriber implements EventSubscriberInterface
 {
@@ -132,11 +128,11 @@ class TransactionSubscriber implements EventSubscriberInterface
   public static function getSubscribedEvents(): array
   {
     return [
-      'state_enter.order_delivery.state.shipped' => 'onOrderShipped',
-      StateMachineTransitionEvent::class => 'onStateMachineTransition',
       OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
-      'state_enter.order_transaction.state.refunded' => 'onOrderStateChange',
-      'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel'
+      'state_enter.order_delivery.state.shipped' => 'onOrderShipped',
+      'OrderStateMachineStateChangeEvent' => 'onOrderStateChange',
+      'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel',
+      'state_enter.order_transaction.state.paid' => 'onOrderStatePaid'
     ];
   }
 
@@ -148,9 +144,24 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     $this->context = $event->getContext();
     if (!$this->dispatched) {
-      $this->createOrderTransaction($event->getOrderId(), $event);
+      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.shippingFlow', $this->salesChannelId);
+      if($selectedFlow == 'ship'){
+        $this->createOrderTransaction($event->getOrderId(), $event);
+      }
       $this->dispatched = true;
     }
+  }
+
+  public function onOrderStatePaid(OrderStateMachineStateChangeEvent $event): void
+  {
+    if (!$this->dispatched) {
+      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.shippingFlow', $this->salesChannelId);
+      if($selectedFlow == 'paid'){
+        $this->createOrderTransaction($event->getOrderId(), $event);
+      }
+      $this->dispatched = true;
+    }
+
   }
 
   /**
@@ -292,10 +303,11 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $logInfo = $this->getLogInfo($order, $orderDetail, $requestType);
 
-      $response = $this->clientApiService->sendOrderTransaction(
+      $response = $this->clientApiService->sendRequest(
+        'POST',
         $apiEndpointUrl,
-        $orderDetail,
-        $this->getHeaders()
+        $this->getHeaders(),
+        $orderDetail
       );
 
       $logInfo['response'] = $response['body'];
@@ -534,61 +546,52 @@ class TransactionSubscriber implements EventSubscriberInterface
     );
   }
 
-    private function getLineItems(OrderEntity $order): array
-    {
-        $lineItems = [];
-        $productIds = [];
-        $lineItemsRaw = $order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) ?? [];
+  private function getLineItems(OrderEntity $order): array
+  {
+    $lineItems = [];
+    foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
+      $parentProduct = null;
+      /** @var ProductEntity $product */
+      $product = $this->productRepository
+        ->search(new Criteria([$lineItem->getProductId()]), $this->context)
+        ->get($lineItem->getProductId());
 
-        foreach ($lineItemsRaw as $item) {
-            if ($item->getProductId()) {
-                $productIds[] = $item->getProductId();
-            }
+      $productTaxCode = null;
+      if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+        $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+      }
+
+      if ($product->getParentId()) {
+        $parentProduct = $this->productRepository
+          ->search(new Criteria([$product->getParentId()]), $this->context)
+          ->get($product->getParentId());
+
+        if($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+          $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
         }
+      }
+      if (!$productTaxCode) {
+        $productTaxCode = $this->getDefaultProductTaxCode();
+      }
 
-        $criteria = new Criteria(array_unique($productIds));
-        $criteria->addAssociation('parent');
-        /** @var ProductCollection $products */
-        $products = $this->productRepository->search($criteria, $this->context)->getEntities();
+      $lineItem = [
+        'quantity' => $lineItem->getQuantity(),
+        'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
+        'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
+        'unit_price' => $lineItem->getUnitPrice(),
+        'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount()
+      ];
 
-        foreach ($lineItemsRaw as $item) {
-            $productId = $item->getProductId();
-            if (!$productId || !$products->has($productId)) {
-                continue;
-            }
+      // only send the code if it's set and it's not 'none'
+      if($productTaxCode && !strtolower($productTaxCode) == 'none') {
+        $lineItem['product_tax_code'] = $productTaxCode;
+      }
 
-            /** @var ProductEntity $product */
-            $product = $products->get($productId);
-            $parentProduct = $product->getParent();
+      $lineItems[] = $lineItem;
 
-            $productTaxCode = $product->getCustomFields()['product_tax_code_value'] ?? null;
-
-            if (!$productTaxCode && $parentProduct) {
-                $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'] ?? null;
-            }
-
-            if (!$productTaxCode) {
-                $productTaxCode = $this->getDefaultProductTaxCode();
-            }
-
-            $lineItemData = [
-                'quantity' => $item->getQuantity(),
-                'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
-                'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
-                'unit_price' => $item->getUnitPrice(),
-                'sales_tax' => $item->getPrice()?->getCalculatedTaxes()->getAmount()
-            ];
-
-            if ($productTaxCode && strtolower($productTaxCode) !== 'none') {
-                $lineItemData['product_tax_code'] = $productTaxCode;
-            }
-
-            $lineItems[] = $lineItemData;
-        }
-
-        return $lineItems;
     }
-
+    return $lineItems;
+  }
     private function getAmounts(OrderEntity $order): array
   {
     $orderTotalAmount = 0;

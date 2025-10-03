@@ -38,6 +38,15 @@
         <service id="solu1TaxJar\Storefront\Controller\ExportLogController" public="true">
             <argument type="service" id="s25_taxjar_log.repository" />
         </service>
+
+        <service id="solu1TaxJar\Subscriber\CustomerSubscriber">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="customer.repository"/>
+            <argument type="service" id="http_client"/>
+            <argument type="service" id="logger"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
         <service id="solu1TaxJar\Core\TaxJar\Order\TransactionSubscriber">
             <tag name="kernel.event_subscriber"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>

@@ -1,0 +1,25 @@
+{
+  "base": "/bundles/solu1taxjar/administration/",
+  "entryPoints": {
+    "solu1-tax-jar": {
+      "css": [
+        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-DLn8N9Ny.css"
+      ],
+      "dynamic": [],
+      "js": [
+        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-C_XDOY0G.js"
+      ],
+      "legacy": false,
+      "preload": []
+    }
+  },
+  "legacy": false,
+  "metadatas": {},
+  "version": [
+    "7.1.0",
+    7,
+    1,
+    0
+  ],
+  "viteServer": null
+}

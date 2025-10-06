@@ -31,6 +31,6 @@ class TaxExtension extends EntityExtension
 
     public function getEntityName(): string
     {
-      return 'taxExtension';
+      return 'tax';
     }
 }

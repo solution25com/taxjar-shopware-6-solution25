@@ -1,0 +1,11 @@
+{
+  "main.js": {
+    "file": "assets/solu1-tax-jar-C_XDOY0G.js",
+    "name": "solu1-tax-jar",
+    "src": "main.js",
+    "isEntry": true,
+    "css": [
+      "assets/solu1-tax-jar-DLn8N9Ny.css"
+    ]
+  }
+}

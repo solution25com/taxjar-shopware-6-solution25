@@ -3,11 +3,11 @@
   "entryPoints": {
     "solu1-tax-jar": {
       "css": [
-        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-DLn8N9Ny.css"
+        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-uEmAuf-p.css"
       ],
       "dynamic": [],
       "js": [
-        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-C_XDOY0G.js"
+        "/bundles/solu1taxjar/administration/assets/solu1-tax-jar-CazBzTBf.js"
       ],
       "legacy": false,
       "preload": []

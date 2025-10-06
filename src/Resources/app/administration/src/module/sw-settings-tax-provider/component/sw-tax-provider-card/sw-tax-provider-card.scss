@@ -2,3 +2,6 @@
 .sw-select.has--focus .sw-select__select-indicator-clear, .sw-select:hover .sw-select__select-indicator-clear{
     margin-left: 8px;
 }
+.sw-select .sw-select__select-indicator-hitbox{
+    margin-left: -40px;
+}

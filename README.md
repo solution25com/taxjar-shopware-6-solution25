@@ -1,50 +1,111 @@
-# Tax Jar Shopware 6
+[![Packagist Version](https://img.shields.io/packagist/v/solution25/tax-jar.svg)](https://packagist.org/packages/solution25/tax-jar)
+[![Packagist Downloads](https://img.shields.io/packagist/dt/solution25/tax-jar.svg)](https://packagist.org/packages/solution25/tax-jar)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/solution25/taxjar-shopware-6-solution25/blob/main/LICENSE)
 
-## Features
+# TaxJar Integration for Shopware 6
 
-- Sellers can define tax rates based on **country, state, or ZIP code ranges**  
-- Option to add a **tax identifier** for each tax rate  
-- Quick and straightforward creation of **tax rules**  
-- Ability to set **priority levels** and control the **execution order** of tax rules**  
-- Tax commit now triggers on **payment status change** instead of order creation  
+## Introduction
 
-## Key Highlights
+The **TaxJar Plugin** for Shopware 6 simplifies and automates sales tax calculations for merchants. It ensures compliance with US and international tax regulations, while integrating seamlessly into your Shopware environment.
 
-- Supports **US tax calculation**  
-- Handles **international tax calculation** out of the box  
-- Built-in **tax automation** tools  
-- Integration with **TaxJar** for transaction tracking  
-- Simple and **lightweight setup** with minimal configuration required
+Merchants can define custom tax rules, prioritize their execution order, and automatically sync tax transactions with TaxJar for accurate reporting.
+
+---
+
+## Key Features
+
+### Automated Tax Management
+
+* Calculate sales tax in real-time at checkout.
+* Commit transactions automatically when **payment status changes**.
+
+### Flexible Rule Creation
+
+* Define tax rates by **country**, **state**, or **ZIP code range**.
+* Assign custom **tax identifiers** for better tracking.
+* Set **priority levels** and control **execution order** of rules.
+
+### TaxJar Integration
+
+* Directly connect with **TaxJar** for transaction tracking and reporting.
+* Sync sales data for compliance and audit readiness.
+
+### International Support
+
+* Handles **US tax calculation** and **international tax scenarios**.
+* Works out of the box with multiple currencies.
+
+### Lightweight Setup
+
+* Minimal configuration required.
+* Easy integration with Shopware 6 admin panel.
+
+---
 
 ## Compatibility
-- ✅ Shopware 6.6.x 
 
+* ✅ Shopware **6.6.x**
 
-# Installation Steps
-1) Download zipped file (do NOT unzip it)
-2) Login to Shopware Admin panel
-3) Click on Settings in the left Extensions->My extensions
-4) Click Upload extension and choose the zip file you previously downloaded
-5) Install the extension
+---
 
-# Activation of Extension
-1) Go to the Shopware Root Directory
-2) Run command php bin/console plugin:install --activate taxjar-shopware-6-solution25
-3) Run database migration command php bin/console database:migrate taxjar-shopware-6-solution25 --all, to run the migration script so all required tables and records will get created
+## Installation & Activation
 
-# Configuration of Extension
-1) Go to Admin->Settings->Shop
-2) Click on Tax service provider settings
-3) Provide all configuration setting and click on Save Button
-4) Clear Cache
+### GitHub
 
-# Mapping of TaxJar with Existing Tax Rate
-1) Go to Admin->Setting->Shop->Tax
-2) Click on Tax Rate for which we want to map Tax Jar as Tax Provider
-3) On Tax Rate Admin Edit Page, Select TaxJar from Service Provider dropdown
-4) Save the Tax Rate
+1. Clone the plugin into your Shopware plugins directory:
+```bash
+git clone https://github.com/solution25com/taxjar-shopware-6-solution25.git
+```
 
-# Review TaxJar Log
-1) Go to Admin->Setting->Shop->Tax service provider setting
-2) Click on TaxJar Log button
-3) Tax Calculation and Order Transaction Logs can be seen on TaxJar Log Page and can be differentiated based on Request Type Field.
+### Packagist
+
+```bash
+composer require solution25/tax-jar
+```
+
+### Install the Plugin in Shopware 6
+
+- Log in to your Shopware 6 Administration panel.
+- Navigate to Extensions > My Extensions.
+- Locate the newly cloned plugin and click Install.
+
+3. **Activate the Plugin**
+
+- After installation, click Activate to enable the plugin.
+- In your Shopware Admin, go to Settings > System > Plugins.
+- Upload or install the “TaxJar” plugin.
+- Once installed, toggle the plugin to activate it.
+
+4. **Verify Installation**
+
+- After activation, you will see TaxJar in the list of installed plugins.
+- The plugin name, version, and installation date should appear.
+
+---
+
+## Plugin Configuration
+
+1. Go to **Settings > Shop > Tax Service Provider Settings**.
+2. Enter your TaxJar configuration values.
+3. Click **Save**.
+4. Clear cache (`bin/console cache:clear` or Admin UI).
+
+---
+
+## Mapping TaxJar with Existing Tax Rates
+
+1. Go to **Settings > Shop > Tax**.
+2. Open the Tax Rate you wish to configure.
+3. In the **Service Provider** dropdown, select **TaxJar**.
+4. Save changes.
+
+---
+
+## Reviewing TaxJar Logs
+
+1. Navigate to **Settings > Shop > Tax Service Provider Settings**.
+2. Click on **TaxJar Log**.
+3. View calculation requests and transaction logs, categorized by **Request Type**.
+
+---
+

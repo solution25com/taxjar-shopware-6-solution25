@@ -63,11 +63,12 @@
                     <name lang="de-DE">Order paid</name>
                 </option>
             </options>
-            <defaultValue>orderId</defaultValue>
+            <defaultValue>ship</defaultValue>
             <label>Commit Tax flow *</label>
             <helpText>
                 Choose when to commit tax to TaxJar: either when the order is paid (Order Paid) or when it is shipped (Order Shipped).
-            </helpText>            <required>true</required>
+            </helpText>
+            <required>true</required>
         </input-field>
         <input-field type="text">
             <name>shippingFromStreet</name>
@@ -276,5 +277,14 @@
             <label>Shipping From ZipCode</label>
             <required>true</required>
         </input-field>
+    </card>
+    <card>
+        <title>Customer Group to exempt</title>
+        <component name="sw-entity-multi-id-select">
+            <name>exemptCustomerGroup</name>
+            <entity>customer_group</entity>
+            <helpText>Select a customer group that will be exempt from tax calculations.</helpText>
+            <label>Tax exempt customer group</label>
+        </component>
     </card>
 </config>

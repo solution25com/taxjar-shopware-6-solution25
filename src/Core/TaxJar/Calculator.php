@@ -106,7 +106,7 @@ class Calculator implements TaxCalculatorInterface
                 return [];
             }
 
-            $customerGroupToExempt = $this->_getCustomerGroupToExempt();
+            $customerGroupToExempt = $this->_getCustomerGroupToExempt() ?? [];
             $customerGroup = $context->getCustomer()->getGroupId();
 
             $shippingAddress = $context->getCustomer()->getActiveShippingAddress();
@@ -142,10 +142,10 @@ class Calculator implements TaxCalculatorInterface
           // If customer ID is null, then check for a customer group, which means if customer is registered on TaxJar,
           // the customer group rule should not be applied
 
-            if ($taxjarCustomerId === null && in_array($customerGroup, $customerGroupToExempt, true)) {
-                $cartInfo["exemption_type"] = "other";
-            }
-            
+          if ($taxjarCustomerId === null && in_array($customerGroup, $customerGroupToExempt, true)) {
+            $cartInfo["exemption_type"] = "other";
+          }
+
             $request = array_merge($shippingFromAddress, $cartInfo);
             $storedResponse = $this->getResponseFromCache(serialize($request));
 
@@ -308,7 +308,7 @@ class Calculator implements TaxCalculatorInterface
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
 
-    private function _getCustomerGroupToExempt(): array
+    private function _getCustomerGroupToExempt(): ?array
     {
         return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
     }

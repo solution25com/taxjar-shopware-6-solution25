@@ -1,6 +1,7 @@
 <?php declare(strict_types=1);
 
 namespace solu1TaxJar\Migration;
+
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception;
 use Shopware\Core\Framework\Migration\MigrationStep;
@@ -209,7 +210,7 @@ class Migration1697049600AddTaxJarCustomFields extends MigrationStep
     }
 
     /**
-     * @return array
+     * @return array<int, array{value: string, label: array{en-GB: string, en-US: string}}>
      */
     private function getUsStateOptions(): array
     {
@@ -221,6 +222,7 @@ class Migration1697049600AddTaxJarCustomFields extends MigrationStep
             'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
         ];
 
+        /** @var array<int, array{value: string, label: array{en-GB: string, en-US: string}}> $options */
         $options = [];
         foreach ($states as $state) {
             $options[] = [

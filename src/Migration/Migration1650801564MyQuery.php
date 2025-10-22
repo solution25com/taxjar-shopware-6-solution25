@@ -49,7 +49,7 @@ SQL;
     }
 
     /**
-     * @return array
+     * @return array{name: string, base_class: string}
      */
     private function getTaxJarData(): array
     {

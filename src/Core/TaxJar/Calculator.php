@@ -2,18 +2,22 @@
 
 namespace solu1TaxJar\Core\TaxJar;
 
+use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Psr7\Request as GRequest;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
+use Shopware\Core\Checkout\Cart\Cart;
+use Shopware\Core\Content\Product\ProductCollection;
 use Shopware\Core\Content\Product\ProductEntity;
+use Shopware\Core\Framework\DataAbstractionLayer\Entity;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Pricing\PriceCollection;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
-use Shopware\Core\Checkout\Cart\Cart;
-use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Request as GRequest;
-use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
-use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
-use Psr\Cache\CacheItemPoolInterface;
 use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
 
 class Calculator implements TaxCalculatorInterface
@@ -25,6 +29,7 @@ class Calculator implements TaxCalculatorInterface
     public const VERSION = '1.10.4';
     public const LIVE_API_URL = 'https://api.taxjar.com/v2';
     public const SANDBOX_API_URL = 'https://api.sandbox.taxjar.com/v2';
+
     /**
      * @var Client
      */
@@ -41,12 +46,12 @@ class Calculator implements TaxCalculatorInterface
     private $systemConfigService;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<EntityCollection<Entity>>
      */
     private $taxJarLogRepository;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<ProductCollection>
      */
     private $productRepository;
 
@@ -58,13 +63,13 @@ class Calculator implements TaxCalculatorInterface
     /**
      * @var float
      */
-    private $cartTotal = 0;
+    private $cartTotal = 0.0;
 
     /**
-     * @param SystemConfigService $systemConfigService
-     * @param EntityRepository $taxJarLogRepository
-     * @param EntityRepository $productRepository
-     * @param CacheItemPoolInterface $cache
+     * @param SystemConfigService                         $systemConfigService
+     * @param EntityRepository<EntityCollection<Entity>>  $taxJarLogRepository
+     * @param EntityRepository<ProductCollection>         $productRepository
+     * @param CacheItemPoolInterface                      $cache
      */
     public function __construct(
         SystemConfigService    $systemConfigService,
@@ -75,7 +80,9 @@ class Calculator implements TaxCalculatorInterface
     {
         $this->restClient = new Client();
         $this->systemConfigService = $systemConfigService;
+        /** @var EntityRepository<EntityCollection<Entity>> $taxJarLogRepository */
         $this->taxJarLogRepository = $taxJarLogRepository;
+        /** @var EntityRepository<ProductCollection> $productRepository */
         $this->productRepository = $productRepository;
         $this->cache = $cache;
     }
@@ -85,6 +92,11 @@ class Calculator implements TaxCalculatorInterface
         return static::class === $baseClass;
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $lineItems
+     * @return array<string, float|int>
+     */
+    // @phpstan-ignore-next-line
     public function calculate(array $lineItems, SalesChannelContext $context, Cart $original): array
     {
         $result = $this->calculateTax($lineItems, $context, $original);
@@ -93,12 +105,10 @@ class Calculator implements TaxCalculatorInterface
     }
 
     /**
-     * @param $lineItems
-     * @param SalesChannelContext $context
-     * @param Cart $cart
-     * @return array|false
+     * @param array<int, array<string, mixed>> $lineItems
+     * @return array<string, float|int>|false
      */
-    public function calculateTax($lineItems, SalesChannelContext $context, Cart $cart): false|array
+    public function calculateTax(array $lineItems, SalesChannelContext $context, Cart $cart): false|array
     {
         $this->salesChannelId = $context->getSalesChannelId();
         if ($this->_isActive()) {
@@ -106,17 +116,14 @@ class Calculator implements TaxCalculatorInterface
                 return [];
             }
 
-            $customerGroupToExempt = $this->_getCustomerGroupToExempt() ?? [];
-            $customerGroup = $context->getCustomer()->getGroupId();
-
             $shippingAddress = $context->getCustomer()->getActiveShippingAddress();
 
             $stateCode = $shippingAddress->getCountryState() ?
-                explode('-', $shippingAddress->getCountryState()->getShortCode()) : '';
+                explode('-', (string) $shippingAddress->getCountryState()->getShortCode()) : '';
             $stateName = $shippingAddress->getCountryState() ?
-                $shippingAddress->getCountryState()->getName() : '';
+                (string) $shippingAddress->getCountryState()->getName() : '';
             $shippingFromAddress = $this->getShippingOriginAddress();
-            $this->cartTotal = 0;
+            $this->cartTotal = 0.0;
             $lineItems = $this->processLinceItems($lineItems, $context);
             $priceAfterProcessLineItems = $this->cartTotal;
 
@@ -124,28 +131,17 @@ class Calculator implements TaxCalculatorInterface
             $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
 
             $cartInfo = [
-              "to_country" => $shippingAddress->getCountry()->getIso(),
-              "to_zip" => $shippingAddress->getZipcode(),
-              "to_state" => $stateCode[1] ?? $stateName,
-              "to_city" => $shippingAddress->getCity(),
-              "to_street" => $shippingAddress->getStreet(),
-              "amount" => ($priceAfterProcessLineItems > 0)
-                ? $this->cartTotal
-                : $cart->getPrice()->getTotalPrice(),
-              "shipping" => $this->useIncludeShippingCostForTaxCalculation()
-                ? $cart->getShippingCosts()->getUnitPrice()
-                : 0,
-              "line_items" => $lineItems,
-              "customer_id" => $taxjarCustomerId,
-              ];
-
-          // If customer ID is null, then check for a customer group, which means if customer is registered on TaxJar,
-          // the customer group rule should not be applied
-
-          if ($taxjarCustomerId === null && in_array($customerGroup, $customerGroupToExempt, true)) {
-            $cartInfo["exemption_type"] = "other";
-          }
-
+                "to_country" => $shippingAddress->getCountry()?->getIso(),
+                "to_zip" => $shippingAddress->getZipcode(),
+                "to_state" => $stateCode[1] ?? $stateName,
+                "to_city" => $shippingAddress->getCity(),
+                "to_street" => $shippingAddress->getStreet(),
+                "amount" => max((float) $this->cartTotal, (float) $cart->getPrice()->getTotalPrice()),
+                "shipping" => $this->useIncludeShippingCostForTaxCalculation() ?
+                    (float) $cart->getShippingCosts()->getUnitPrice() : 0.0,
+                "line_items" => $lineItems,
+                "customer_id" => $taxjarCustomerId
+            ];
             $request = array_merge($shippingFromAddress, $cartInfo);
             $storedResponse = $this->getResponseFromCache(serialize($request));
 
@@ -161,16 +157,17 @@ class Calculator implements TaxCalculatorInterface
 
                 $processedResponse = $this->addRate($taxInformation, $processedResponse);
                 foreach ($lineItems as $lineItem) {
-                    if (isset($lineItem['id']) && isset($lineItem['tax_collectable'])) {
-                        $processedResponse[$lineItem['id']] = $lineItem['tax_collectable'];
+                    if (isset($lineItem['id'], $lineItem['tax_collectable'])) {
+                        $processedResponse[(string) $lineItem['id']] = (float) $lineItem['tax_collectable'];
                     }
                 }
                 if ($this->useIncludeShippingCostForTaxCalculation()) {
                     if (isset($taxInformation['breakdown']['shipping']) &&
                         ($shippingTax = $taxInformation['breakdown']['shipping'])) {
-                        $processedResponse['shippingTax'] = $shippingTax['tax_collectable'] ?? 0;
+                        $processedResponse['shippingTax'] = (float) ($shippingTax['tax_collectable'] ?? 0);
                     }
                 }
+                /** @var array<string, float|int> $processedResponse */
                 return $processedResponse;
             }
         }
@@ -178,31 +175,38 @@ class Calculator implements TaxCalculatorInterface
     }
 
     /**
-     * @param $lineItems
-     * @param SalesChannelContext $context
-     * @return array
+     * @param array<int, array<string, mixed>> $lineItems
+     * @return array<int, array<string, mixed>>
      */
-    private function processLinceItems($lineItems, SalesChannelContext $context)
+    private function processLinceItems(array $lineItems, SalesChannelContext $context): array
     {
         $useGrossPriceForCalculation = $this->useGrossPriceForTaxCalculation();
         foreach ($lineItems as $key => $productInfo) {
             if (isset($productInfo['id']) && $productInfo['id']) {
-                $quantity = $lineItems[$key]['quantity'];
-                $product = $this->getProduct($productInfo['id'], $context);
+                $quantity = (int) ($lineItems[$key]['quantity'] ?? 0);
+                $product = $this->getProduct((string) $productInfo['id'], $context);
+                if ($product === null) {
+                    continue;
+                }
                 if ($useGrossPriceForCalculation) {
                     $priceCollection = $product->getPrice();
-                    foreach ($priceCollection as $price) {
-                        if ($price->getGross()) {
-                            $lineItems[$key]['unit_price'] = $price->getGross();
-                            $this->cartTotal = $this->cartTotal + ($price->getGross() * $quantity);
+                    if ($priceCollection instanceof PriceCollection) {
+                        foreach ($priceCollection as $price) {
+                            if ($price->getGross()) {
+                                $lineItems[$key]['unit_price'] = $price->getGross();
+                                $this->cartTotal = $this->cartTotal + ((float) $price->getGross() * $quantity);
+                            }
                         }
                     }
                 } else {
-                    $this->cartTotal = $this->cartTotal + ($lineItems[$key]['unit_price'] * $quantity);
+                    $unitPrice = (float) ($lineItems[$key]['unit_price'] ?? 0.0);
+                    $this->cartTotal = $this->cartTotal + ($unitPrice * $quantity);
                 }
 
-                if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
-                    $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+                if ($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+                    /** @var array<string, mixed> $cfs */
+                    $cfs = $product->getCustomFields();
+                    $productTaxCode = $cfs['product_tax_code_value'];
                 } else {
                     // let the value to get default from configs check that in subscriber
                     $productTaxCode = $this->getDefaultProductTaxCode();
@@ -216,22 +220,22 @@ class Calculator implements TaxCalculatorInterface
 
     /**
      * @param string $productId
-     * @param SalesChannelContext $context
-     * @return ProductEntity
      */
-    private function getProduct(string $productId, SalesChannelContext $context) : ProductEntity
+    private function getProduct(string $productId, SalesChannelContext $context): ?ProductEntity
     {
-        return $this->productRepository
+        /** @var ProductEntity|null $entity */
+        $entity = $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
             ->get($productId);
+
+        return $entity;
     }
 
     /**
-     * @param $dataToLog
-     * @param SalesChannelContext $context
+     * @param array<string, mixed> $dataToLog
      * @return void
      */
-    private function logRequestResponse($dataToLog, SalesChannelContext $context)
+    private function logRequestResponse(array $dataToLog, SalesChannelContext $context): void
     {
         if (!empty($dataToLog)) {
             $this->taxJarLogRepository->create(
@@ -240,43 +244,44 @@ class Calculator implements TaxCalculatorInterface
     }
 
     /**
-     * @param SalesChannelContext $context
-     * @param array $orderDetail
+     * @param array<string, mixed> $orderDetail
      * @return array|mixed|ResponseInterface|string
      * @throws InvalidArgumentException
      * @throws GuzzleException
      */
     private function _getTaxRateWithHttpRequest(SalesChannelContext $context, array $orderDetail = [])
     {
-        $response = [];
+        $responsePayload = [];
         $debugMode = $this->isDebugModeOn();
+        $token = (string) ($this->_taxJarApiToken() ?? '');
+        /** @var array<string, array<string>|string> $headers */
         $headers = [
             'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-            "X-CSRF-Token" => $this->_taxJarApiToken()
+            'Authorization' => 'Bearer ' . $token,
+            'X-CSRF-Token'  => $token,
         ];
         $customer = $context->getCustomer();
         $request = new GRequest(
             'POST',
             $this->_getApiEndPoint() . '/taxes',
             $headers,
-            json_encode($orderDetail)
+            json_encode($orderDetail) ?: ''
         );
         if ($debugMode) {
             $logInfo = [
-                'requestKey' => serialize($orderDetail),
-                'customerName' => $customer->getFirstName() . ' ' . $customer->getLastName(),
-                'customerEmail' => $customer->getEmail(),
-                'remoteIp' => !is_null($customer->getRemoteAddress()) ? $customer->getRemoteAddress() : '',
-                'request' => json_encode($orderDetail),
-                'type' => self::REQUEST_TYPE
+                'requestKey'    => serialize($orderDetail),
+                'customerName'  => trim(($customer?->getFirstName() ?? '') . ' ' . ($customer?->getLastName() ?? '')),
+                'customerEmail' => $customer?->getEmail() ?? '',
+                'remoteIp'      => $customer?->getRemoteAddress() ?? '',
+                'request'       => json_encode($orderDetail),
+                'type'          => self::REQUEST_TYPE
             ];
         }
         try {
-            $response = $this->restClient->send($request);
+            $httpResponse = $this->restClient->send($request);
         } catch (\GuzzleHttp\Exception\ClientException $e) {
-            $response = $e->getResponse();
-            $responseBodyAsString = $response->getBody()->getContents();
+            $httpResponse = $e->getResponse();
+            $responseBodyAsString = $httpResponse->getBody()->getContents();
             if ($debugMode) {
                 $logInfo['response'] = $responseBodyAsString;
                 $this->logRequestResponse($logInfo, $context);
@@ -284,20 +289,23 @@ class Calculator implements TaxCalculatorInterface
             return ['error' => json_decode($responseBodyAsString, true)];
         }
         try {
-            $response = $response->getBody()->getContents();
+            /** @var ResponseInterface $httpResponse */
+            $body = $httpResponse->getBody()->getContents();
             if ($debugMode) {
-                $logInfo['response'] = $response;
+                $logInfo['response'] = $body;
                 $this->logRequestResponse($logInfo, $context);
             }
-            $response = json_decode($response, true);
-            $this->setResponseIntoCache($response, serialize($orderDetail));
-            if (isset($response['tax'])) {
-                return $response['tax'];
+            /** @var array<string, mixed> $decoded */
+            $decoded = json_decode($body, true);
+            $this->setResponseIntoCache($decoded, serialize($orderDetail));
+            if (isset($decoded['tax'])) {
+                return $decoded['tax'];
             }
+            return $decoded;
         } catch (\Exception $e) {
-            $response['error'] = $e->getMessage();
+            $responsePayload = ['error' => $e->getMessage()];
         }
-        return $response;
+        return $responsePayload;
     }
 
     /**
@@ -305,21 +313,19 @@ class Calculator implements TaxCalculatorInterface
      */
     private function _isSandboxMode(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
+        /** @var int $val */
+        $val = (int) $this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
+        return $val;
     }
-
-    private function _getCustomerGroupToExempt(): ?array
-    {
-        return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
-    }
-
 
     /**
      * @return int
      */
     private function useIncludeShippingCostForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
+        /** @var int $val */
+        $val = (int) $this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
+        return $val;
     }
 
     /**
@@ -327,7 +333,9 @@ class Calculator implements TaxCalculatorInterface
      */
     private function useGrossPriceForTaxCalculation(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.useGrossPrice', $this->salesChannelId);
+        /** @var int $val */
+        $val = (int) $this->systemConfigService->get('solu1TaxJar.setting.useGrossPrice', $this->salesChannelId);
+        return $val;
     }
 
     /**
@@ -335,18 +343,23 @@ class Calculator implements TaxCalculatorInterface
      */
     private function _isActive(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
+        /** @var int $val */
+        $val = (int) $this->systemConfigService->get('solu1TaxJar.setting.active', $this->salesChannelId);
+        return $val;
     }
 
     /**
      * @return string|null
      */
-    private function _taxJarApiToken()
+    private function _taxJarApiToken(): ?string
     {
-        if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
-        }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        $key = $this->_isSandboxMode()
+            ? 'solu1TaxJar.setting.sandboxApiToken'
+            : 'solu1TaxJar.setting.liveApiToken';
+
+        $val = $this->systemConfigService->get($key, $this->salesChannelId);
+
+        return is_string($val) && $val !== '' ? $val : null;
     }
 
     /**
@@ -361,16 +374,22 @@ class Calculator implements TaxCalculatorInterface
     }
 
     /**
-     * @return array
+     * @return array<string, string|null>
      */
     private function getShippingOriginAddress(): array
     {
+        $country = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId);
+        $zip     = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId);
+        $state   = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId);
+        $city    = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId);
+        $street  = $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId);
+
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            "from_country" => is_string($country) ? $country : null,
+            "from_zip"     => is_string($zip) ? $zip : null,
+            "from_state"   => is_string($state) ? $state : null,
+            "from_city"    => is_string($city) ? $city : null,
+            "from_street"  => is_string($street) ? $street : null,
         ];
     }
 
@@ -379,7 +398,8 @@ class Calculator implements TaxCalculatorInterface
      */
     private function getDefaultProductTaxCode(): string
     {
-        return $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        $val = $this->systemConfigService->get('solu1TaxJar.setting.defaultProductTaxCode', $this->salesChannelId);
+        return is_string($val) ? $val : '';
     }
 
     /**
@@ -387,22 +407,23 @@ class Calculator implements TaxCalculatorInterface
      */
     private function isDebugModeOn(): int
     {
-        return (int)$this->systemConfigService->get('solu1TaxJar.setting.debug', $this->salesChannelId);
+        /** @var int $val */
+        $val = (int) $this->systemConfigService->get('solu1TaxJar.setting.debug', $this->salesChannelId);
+        return $val;
     }
 
     /**
-     * @param $response
+     * @param array<string, mixed> $response
      * @param string $cacheId
      * @return void
      * @throws InvalidArgumentException
      */
-    private function setResponseIntoCache($response, string $cacheId): void
+    private function setResponseIntoCache(array $response, string $cacheId): void
     {
         $item = $this->cache->getItem(self::CACHE_ID . hash('sha256', $cacheId));
         $item->set(\serialize($response));
         $this->cache->save($item);
     }
-
 
     /**
      * @param string $cacheId
@@ -424,13 +445,17 @@ class Calculator implements TaxCalculatorInterface
         return [];
     }
 
+    /**
+     * @param mixed $taxInformation
+     * @param array<string, float|int> $processedResponse
+     * @return array<string, float|int>
+     */
     private function addRate(mixed $taxInformation, array $processedResponse): array
     {
         if (isset($taxInformation['rate'])) {
-            $processedResponse['rate'] = $taxInformation['rate'];
+            $processedResponse['rate'] = (float) $taxInformation['rate'];
         }
 
         return $processedResponse;
     }
-
 }

@@ -14,39 +14,38 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
     private const LOG_RETENTION_PERIOD = 10;
 
     /**
-     * @var EntityRepository
+     * @var EntityRepository<TaxLogCollection>
      */
-    private $logRepository;
+    private EntityRepository $logRepository;
 
     /**
-     * @param EntityRepository $scheduledTaskRepository
-     * @param EntityRepository $runRepository
+     * @param EntityRepository<TaxLogCollection> $scheduledTaskRepository
+     * @param EntityRepository<TaxLogCollection> $runRepository
      */
     public function __construct(
         EntityRepository $scheduledTaskRepository,
         EntityRepository $runRepository
-    )
-    {
+    ) {
+        /** @phpstan-ignore-next-line  */
         parent::__construct($scheduledTaskRepository);
         $this->logRepository = $runRepository;
     }
 
     /**
-     * @return iterable
+     * @return iterable<class-string>
      */
     public static function getHandledMessages(): iterable
     {
         return [CleanLogTask::class];
     }
 
-    /**
-     * @return void
-     */
     public function run(): void
     {
         $deletable = [];
+
         // default context is used to avoid issues with the context in the scheduled task handler
         $context = Context::createDefaultContext();
+
         $criteria = new Criteria();
         $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::DESCENDING));
 
@@ -60,6 +59,7 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
                 $deletable[] = ['id' => $run->getId()];
             }
         }
+
         if (\count($deletable) > 0) {
             $this->logRepository->delete($deletable, $context);
         }

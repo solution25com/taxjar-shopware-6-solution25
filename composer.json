@@ -40,5 +40,8 @@
         "allow-plugins": {
             "symfony/runtime": true
         }
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1"
     }
 }

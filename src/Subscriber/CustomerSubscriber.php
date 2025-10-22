@@ -1,7 +1,9 @@
 <?php declare(strict_types=1);
 
 namespace solu1TaxJar\Subscriber;
+
 use Shopware\Core\Checkout\Customer\CustomerEntity;
+use Shopware\Core\Checkout\Customer\CustomerCollection;
 use Shopware\Core\Checkout\Customer\CustomerEvents;
 use Shopware\Core\Framework\Api\Context\AdminApiSource;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
@@ -20,12 +22,17 @@ class CustomerSubscriber implements EventSubscriberInterface
     public const LIVE_API_URL = 'https://api.taxjar.com/v2';
     public const SANDBOX_API_URL = 'https://api.sandbox.taxjar.com/v2';
 
+    /** @var EntityRepository<CustomerCollection> */
     private EntityRepository $customerRepository;
+
     private HttpClientInterface $httpClient;
     private LoggerInterface $logger;
     private SystemConfigService $systemConfigService;
     private ?string $salesChannelId;
 
+    /**
+     * @param EntityRepository<CustomerCollection> $customerRepository
+     */
     public function __construct(
         SystemConfigService $systemConfigService,
         EntityRepository $customerRepository,
@@ -65,7 +72,7 @@ class CustomerSubscriber implements EventSubscriberInterface
         $criteria = new Criteria($customerIds);
 
         try {
-            /** @var CustomerEntity[]|EntityCollection $customers */
+            /** @var CustomerCollection $customers */
             $customers = $this->customerRepository->search($criteria, $context)->getEntities();
 
             $customerUpdates = [];
@@ -90,7 +97,7 @@ class CustomerSubscriber implements EventSubscriberInterface
                         if (!empty($state)) {
                             $exemptRegions[] = [
                                 'country' => 'US',
-                                'state' => strtoupper($state),
+                                'state' => strtoupper((string) $state),
                             ];
                         }
                     }
@@ -106,12 +113,11 @@ class CustomerSubscriber implements EventSubscriberInterface
                     'name' => trim($customer->getFirstName() . ' ' . $customer->getLastName()),
                 ];
 
-
                 $baseUrl = $this->_getApiEndPoint() . '/customers/';
                 $headers = [
                     'Content-Type' => 'application/json',
-                    'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-                    'X-CSRF-Token' => $this->_taxJarApiToken(),
+                    'Authorization' => 'Bearer ' . (string) $this->_taxJarApiToken(),
+                    'X-CSRF-Token' => (string) $this->_taxJarApiToken(),
                 ];
 
                 try {
@@ -165,9 +171,11 @@ class CustomerSubscriber implements EventSubscriberInterface
     private function _taxJarApiToken(): ?string
     {
         if ($this->_isSandboxMode()) {
-            return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+            $val = $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken', $this->salesChannelId);
+            return is_string($val) ? $val : null;
         }
-        return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        $val = $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken', $this->salesChannelId);
+        return is_string($val) ? $val : null;
     }
 
     private function _getApiEndPoint(): string

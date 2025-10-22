@@ -8,5 +8,9 @@ interface TaxCalculatorInterface
 {
     public function supports(string $baseClass): bool;
 
+    /**
+     * @param array<int, mixed> $lineItems
+     * @return array<int, mixed>
+     */
     public function calculate(array $lineItems, SalesChannelContext $context, Cart $original): array;
 }

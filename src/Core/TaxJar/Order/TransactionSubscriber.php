@@ -144,7 +144,7 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     $this->context = $event->getContext();
     if (!$this->dispatched) {
-      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.shippingFlow', $this->salesChannelId);
+      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
       if($selectedFlow == 'ship'){
         $this->createOrderTransaction($event->getOrderId(), $event);
       }
@@ -154,8 +154,9 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   public function onOrderStatePaid(OrderStateMachineStateChangeEvent $event): void
   {
-    if (!$this->dispatched) {
-      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.shippingFlow', $this->salesChannelId);
+      $this->context = $event->getContext();
+      if (!$this->dispatched) {
+      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
       if($selectedFlow == 'paid'){
         $this->createOrderTransaction($event->getOrderId(), $event);
       }

@@ -76,8 +76,8 @@
                     <name lang="de-DE">Bestellung bezahlt</name>
                 </option>
             </options>
-            <defaultValue>orderId</defaultValue>
-            <label>Commit Tax Flow *</label>
+            <defaultValue>ship</defaultValue>
+            <label>Commit Tax flow *</label>
             <label lang="de-DE">Zeitpunkt der Steuerübermittlung *</label>
             <helpText>
                 Choose when to commit tax to TaxJar: either when the order is paid (Order Paid) or when it is shipped (Order Shipped).
@@ -232,5 +232,14 @@
             <label lang="de-DE">Versand-Postleitzahl</label>
             <required>true</required>
         </input-field>
+    </card>
+    <card>
+        <title>Customer Group to exempt</title>
+        <component name="sw-entity-multi-id-select">
+            <name>exemptCustomerGroup</name>
+            <entity>customer_group</entity>
+            <helpText>Select a customer group that will be exempt from tax calculations.</helpText>
+            <label>Tax exempt customer group</label>
+        </component>
     </card>
 </config>

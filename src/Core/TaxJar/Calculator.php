@@ -106,6 +106,9 @@ class Calculator implements TaxCalculatorInterface
                 return [];
             }
 
+            $customerGroupToExempt = $this->_getCustomerGroupToExempt() ?? [];
+            $customerGroup = $context->getCustomer()->getGroupId();
+
             $shippingAddress = $context->getCustomer()->getActiveShippingAddress();
 
             $stateCode = $shippingAddress->getCountryState() ?
@@ -121,17 +124,28 @@ class Calculator implements TaxCalculatorInterface
             $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
 
             $cartInfo = [
-                "to_country" => $shippingAddress->getCountry()->getIso(),
-                "to_zip" => $shippingAddress->getZipcode(),
-                "to_state" => $stateCode[1] ?? $stateName,
-                "to_city" => $shippingAddress->getCity(),
-                "to_street" => $shippingAddress->getStreet(),
-                "amount" => ($priceAfterProcessLineItems > 0) ? $this->cartTotal : $cart->getPrice()->getTotalPrice(),
-                "shipping" => $this->useIncludeShippingCostForTaxCalculation() ?
-                    $cart->getShippingCosts()->getUnitPrice() : 0,
-                "line_items" => $lineItems,
-                "customer_id" => $taxjarCustomerId
-            ];
+              "to_country" => $shippingAddress->getCountry()->getIso(),
+              "to_zip" => $shippingAddress->getZipcode(),
+              "to_state" => $stateCode[1] ?? $stateName,
+              "to_city" => $shippingAddress->getCity(),
+              "to_street" => $shippingAddress->getStreet(),
+              "amount" => ($priceAfterProcessLineItems > 0)
+                ? $this->cartTotal
+                : $cart->getPrice()->getTotalPrice(),
+              "shipping" => $this->useIncludeShippingCostForTaxCalculation()
+                ? $cart->getShippingCosts()->getUnitPrice()
+                : 0,
+              "line_items" => $lineItems,
+              "customer_id" => $taxjarCustomerId,
+              ];
+
+          // If customer ID is null, then check for a customer group, which means if customer is registered on TaxJar,
+          // the customer group rule should not be applied
+
+          if ($taxjarCustomerId === null && in_array($customerGroup, $customerGroupToExempt, true)) {
+            $cartInfo["exemption_type"] = "other";
+          }
+
             $request = array_merge($shippingFromAddress, $cartInfo);
             $storedResponse = $this->getResponseFromCache(serialize($request));
 
@@ -293,6 +307,12 @@ class Calculator implements TaxCalculatorInterface
     {
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
+
+    private function _getCustomerGroupToExempt(): ?array
+    {
+        return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
+    }
+
 
     /**
      * @return int

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.1.1] - 2025-10-08
+
+###  Bug Fixes
+
+- **Fixed `TaxExtension` Entity Reference**  
+  - Resolved an issue where the `taxExtension` relation incorrectly returned a `taxExtension` entity instead of the intended `tax`.  
+  - This fix ensures that the correct provider linkage is loaded, allowing TaxJar to be recognized properly in the checkout process.
+
+
+---
+
 ## [1.1.0] - 2025-10-03
 
 ### New Features

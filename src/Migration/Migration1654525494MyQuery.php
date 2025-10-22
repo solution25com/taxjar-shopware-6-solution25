@@ -88,10 +88,11 @@ class Migration1654525494MyQuery extends MigrationStep
 
     /**
      * @param Connection $connection
+     * @param string $customerFieldSetId
      * @return string
      * @throws Exception
      */
-    private function createCustomField(Connection $connection, $customerFieldSetId)
+    private function createCustomField(Connection $connection, string $customerFieldSetId)
     {
         $customFieldId = Uuid::randomBytes();
         $customFieldSet = [
@@ -123,11 +124,11 @@ class Migration1654525494MyQuery extends MigrationStep
 
     /**
      * @param Connection $connection
-     * @param $customerFieldSetId
+     * @param string $customerFieldSetId
      * @return string
      * @throws Exception
      */
-    private function createFieldRelation(Connection $connection, $customerFieldSetId)
+    private function createFieldRelation(Connection $connection, string $customerFieldSetId)
     {
         $customFieldRelationId = Uuid::randomBytes();
         $customFieldSet = [

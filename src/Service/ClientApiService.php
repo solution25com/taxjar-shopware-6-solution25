@@ -8,14 +8,23 @@ use GuzzleHttp\Psr7\Request as GRequest;
 
 class ClientApiService
 {
+    /**
+     * @param array<string, string> $headers
+     * @param array<string, mixed>  $body
+     * @return array{success: bool, body: string}
+     */
     public function sendRequest(string $method, string $endpointUrl, array $headers, array $body): array
     {
         $client = new Client();
+
+        // Ensure the body is always a string; json_encode can return false.
+        $encodedBody = (string) json_encode($body);
+
         $request = new GRequest(
             $method,
             $endpointUrl,
             $headers,
-            json_encode($body)
+            $encodedBody
         );
 
         try {
@@ -32,4 +41,3 @@ class ClientApiService
         }
     }
 }
-

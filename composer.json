@@ -3,14 +3,14 @@
     "description": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries.",
     "version": "1.1.2",
     "type": "shopware-platform-plugin",
-    "license": "MIT",
+    "license": "proprietary",
     "authors": [
         {
             "name": "Solution25"
         }
     ],
     "require": {
-        "shopware/core": "^6.6.0"
+        "shopware/core": "^6.6 || ^6.7"
     },
     "extra": {
         "shopware-plugin-class": "solu1TaxJar\\solu1TaxJar",
@@ -35,5 +35,13 @@
         "psr-4": {
             "solu1TaxJar\\": "src/"
         }
+    },
+    "config": {
+        "allow-plugins": {
+            "symfony/runtime": true
+        }
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1"
     }
 }

@@ -1,5 +1,6 @@
 import template from './sw-tax-provider-card.html.twig';
 import './sw-tax-provider-card.scss';
+
 const { Component, Context } = Shopware;
 const { Criteria } = Shopware.Data;
 
@@ -29,8 +30,7 @@ Component.register('sw-tax-provider-card', {
             return this.repositoryFactory.create('s25_tax_provider');
         },
         taxProviderCriteria() {
-            const criteria = new Criteria();
-            return criteria;
+            return new Criteria();
         }
     },
 

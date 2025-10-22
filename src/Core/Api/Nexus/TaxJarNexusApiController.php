@@ -64,12 +64,14 @@ class TaxJarNexusApiController extends AbstractController
   }
 
 
-  private function _taxJarApiToken()
+  private function _taxJarApiToken(): string
   {
-    if ($this->_isSandboxMode()) {
-      return $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken');
-    }
-    return $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken');
+      if ($this->_isSandboxMode()) {
+          $token = $this->systemConfigService->get('solu1TaxJar.setting.sandboxApiToken');
+      } else {
+          $token = $this->systemConfigService->get('solu1TaxJar.setting.liveApiToken');
+      }
+      return \is_string($token) ? $token : '';
   }
   private function _isSandboxMode(): int
   {
@@ -83,12 +85,14 @@ class TaxJarNexusApiController extends AbstractController
     }
     return self::LIVE_API_URL;
   }
+    /** @return array<string,string> */
   private function getHeaders(): array
   {
+      $token = $this->_taxJarApiToken();
     return [
       'Content-Type' => 'application/json',
-      'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-      "X-CSRF-Token" => $this->_taxJarApiToken()
+      'Authorization' => 'Bearer ' . $token,
+      "X-CSRF-Token" => $token,
     ];
   }
 }

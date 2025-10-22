@@ -14,7 +14,7 @@
             <template #smart-bar-header>
                 <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                 {% block sw_settings_taxjar_smart_bar_header_title %}
-                    <h2>
+                    <span class="h2">
                         <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                         {% block sw_settings_taxjar_smart_bar_header_title_text %}
                             {{ $tc('sw-settings.index.title') }}
@@ -24,7 +24,7 @@
                             />
                             {{ $tc('sw-settings-taxjar.general.textHeadline') }}
                         {% endblock %}
-                    </h2>
+                    </span>
                 {% endblock %}
             </template>
         {% endblock %}

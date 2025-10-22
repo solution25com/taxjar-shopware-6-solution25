@@ -1,23 +1,23 @@
 {
-    "sw-tax-log-module":{
+    "sw-tax-log-module": {
         "general": {
-            "mainMenuItemList": "Tax Jar Log",
-            "descriptionTextModule": "Tax Jar Log"
+            "mainMenuItemList": "TaxJar-Protokoll",
+            "descriptionTextModule": "TaxJar-Protokoll"
         },
         "list": {
-            "titleColumn": "Request",
-            "customerName": "Customer Name",
-            "requestType": "Request Type",
-            "orderNumber": "Order Number",
-            "orderId": "Order Id",
-            "customerEmail": "Customer Email",
-            "remoteIp": "Customer IP",
-            "descColumn": "Response",
-            "titleSaveSuccess": "Save",
-            "messageSaveSuccess": "Tax Log Saved Successfully"
+            "titleColumn": "Anfrage",
+            "customerName": "Kundenname",
+            "requestType": "Anfragetyp",
+            "orderNumber": "Bestellnummer",
+            "orderId": "Bestell-ID",
+            "customerEmail": "Kunden-E-Mail",
+            "remoteIp": "Kunden-IP",
+            "descColumn": "Antwort",
+            "titleSaveSuccess": "Gespeichert",
+            "messageSaveSuccess": "Tax-Protokoll erfolgreich gespeichert"
         },
         "export": {
-            "buttonLabel": "Export Log"
+            "buttonLabel": "Protokoll exportieren"
         }
     }
 }

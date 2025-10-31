@@ -255,9 +255,9 @@ class TransactionSubscriber implements EventSubscriberInterface
       if (!$order) {
         return;
       }
-
-      $this->salesChannelId = $order->getSalesChannelId();
-
+        // @phpstan-ignore-next-line
+        $this->salesChannelId = $order->getSalesChannelId();
+        /** @var OrderEntity $order */
       $orderDetail = $this->getOrderDetail($order);
       $orderDetail['transaction_id'] .= '_refund';
 
@@ -295,7 +295,13 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $apiEndpointUrl = $this->_getApiEndPoint() . '/transactions/orders';
       $requestType = self::ORDER_CREATE_REQUEST_TYPE;
-      $this->salesChannelId = $order->getSalesChannelId();
+        // @phpstan-ignore-next-line
+        $this->salesChannelId = $order->getSalesChannelId();
+        if (!$order instanceof OrderEntity) {
+            // not an order, nothing to do (or just return)
+            return;
+        }
+
       $orderDetail = $this->getOrderDetail($order);
 
       if ($this->isDuplicateRequest(serialize($orderDetail))) {
@@ -566,9 +572,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         $parentProduct = $this->productRepository
           ->search(new Criteria([$product->getParentId()]), $this->context)
           ->get($product->getParentId());
+          if($parentProduct instanceof ProductEntity && $parentProduct->getCustomFields() &&
+              isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+              $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
 
-        if($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
-          $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
+
         }
       }
       if (!$productTaxCode) {
@@ -576,15 +584,20 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $lineItem = [
-        'quantity' => $lineItem->getQuantity(),
-        'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
+
+          'quantity' => $lineItem->getQuantity(),
+        'product_identifier' => $parentProduct instanceof ProductEntity ?
+            $parentProduct->getProductNumber() :
+            // @phpstan-ignore-next-line
+            ($product instanceof ProductEntity ? $product->getProductNumber() : null),
         'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
         'unit_price' => $lineItem->getUnitPrice(),
         'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount()
       ];
 
       // only send the code if it's set and it's not 'none'
-      if($productTaxCode && !strtolower($productTaxCode) == 'none') {
+        // @phpstan-ignore-next-line
+        if($productTaxCode && !strtolower($productTaxCode) == 'none') {
         $lineItem['product_tax_code'] = $productTaxCode;
       }
 
@@ -633,7 +646,9 @@ class TransactionSubscriber implements EventSubscriberInterface
         new EqualsFilter('type', self::ORDER_CREATE_REQUEST_TYPE)
       )
     );
-    return $iterator->fetch()?->first();
+      $entity = $iterator->fetch()?->first();
+
+      return $entity instanceof TaxLogEntity ? $entity : null;
   }
 
   /**

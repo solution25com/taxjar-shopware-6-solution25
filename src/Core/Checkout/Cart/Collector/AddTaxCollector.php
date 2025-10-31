@@ -115,7 +115,7 @@ class AddTaxCollector implements CartProcessorInterface
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
             $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);
             if ($taxProviderClass) {
-                $lineItems = array_values($requestDetails);
+                $lineItems = $requestDetails;
                 $lineItemsTax = $taxProviderClass->calculate($lineItems, $context, $original);
                 $this->addRateToCart($lineItemsTax, $toCalculate);
 

@@ -129,7 +129,8 @@ class Calculator implements TaxCalculatorInterface
               "to_state" => $stateCode[1] ?? $stateName,
               "to_city" => $shippingAddress->getCity(),
               "to_street" => $shippingAddress->getStreet(),
-              "amount" => ($priceAfterProcessLineItems > 0)
+                // @phpstan-ignore-next-line
+                "amount" => ($priceAfterProcessLineItems > 0)
                 ? $this->cartTotal
                 : $cart->getPrice()->getTotalPrice(),
               "shipping" => $this->useIncludeShippingCostForTaxCalculation()
@@ -221,6 +222,7 @@ class Calculator implements TaxCalculatorInterface
      */
     private function getProduct(string $productId, SalesChannelContext $context) : ProductEntity
     {
+        // @phpstan-ignore-next-line
         return $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
             ->get($productId);

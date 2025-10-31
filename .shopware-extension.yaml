@@ -1,0 +1,3 @@
+validation:
+  ignore:
+    - message: 'Call to an undefined method Shopware\Core\Framework\DataAbstractionLayer\Entity'

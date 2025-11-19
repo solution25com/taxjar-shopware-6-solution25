@@ -4,8 +4,8 @@ namespace solu1TaxJar\Core\TaxJar\Order;
 
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
+use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
-use Shopware\Core\System\StateMachine\Event\StateMachineTransitionEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use solu1TaxJar\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
@@ -129,12 +129,46 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     return [
       OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
+      CheckoutOrderPlacedEvent::class => 'onOrderPlaced',
       'state_enter.order_delivery.state.shipped' => 'onOrderShipped',
-      'OrderStateMachineStateChangeEvent' => 'onOrderStateChange',
       'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel',
-      'state_enter.order_transaction.state.paid' => 'onOrderStatePaid'
+      'state_enter.order_transaction.state.paid' => 'onOrderStatePaid',
+      'state_enter.order_transaction.state.refunded' => 'onOrderRefund',
     ];
   }
+
+  /**
+   * @param CheckoutOrderPlacedEvent $event
+   * @return void
+   */
+  public function onOrderPlaced(CheckoutOrderPlacedEvent $event): void
+  {
+    $order = $event->getOrder();
+    $context = $event->getContext();
+    $lineItems = $order->getLineItems();
+
+    $hasTaxJar = false;
+
+    foreach ($lineItems as $item) {
+      $payload = $item->getPayload();
+
+      if (isset($payload['taxJarRate'])) {
+        $hasTaxJar = true;
+        break;
+      }
+    }
+
+    if ($hasTaxJar) {
+      $this->orderRepository->update([[
+        'id' => $order->getId(),
+        'customFields' => array_merge(
+          $order->getCustomFields() ?? [],
+          ['taxJarProvider' => true]
+        ),
+      ]], $context);
+    }
+  }
+
 
   /**
    * @param OrderStateMachineStateChangeEvent $event
@@ -222,6 +256,10 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
+      if (!$this->hasTaxJarProvider($order)) {
+        return;
+      }
+
       $existTransactionId = $this->getExistTransactionId($orderId);
       $logInfo = $this->getDeleteLogInfo($orderId);
       $orderId = $existTransactionId ?: $orderId;
@@ -246,7 +284,7 @@ class TransactionSubscriber implements EventSubscriberInterface
    * @param OrderStateMachineStateChangeEvent $event
    * @return void
    */
-  public function onOrderStateChange(OrderStateMachineStateChangeEvent $event): void
+  public function onOrderRefund(OrderStateMachineStateChangeEvent $event): void
   {
     try {
       $this->context = $event->getContext();
@@ -256,10 +294,19 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
+      if (!$this->hasTaxJarProvider($order)) {
+        return;
+      }
+
       $this->salesChannelId = $order->getSalesChannelId();
 
+      $existTransactionId = $this->getExistTransactionId($orderId);
+      if ($existTransactionId) {
+        $orderId = $existTransactionId;
+      }
+
       $orderDetail = $this->getOrderDetail($order);
-      $orderDetail['transaction_id'] .= '_refund';
+      $orderDetail['transaction_id'] = $orderId . '_refund';
 
       $logInfo = $this->getLogInfo($order, $orderDetail, self::ORDER_REFUND_REQUEST_TYPE);
 
@@ -279,7 +326,6 @@ class TransactionSubscriber implements EventSubscriberInterface
       return;
     }
   }
-
     /**
      * @param string $orderId
      * @param OrderStateMachineStateChangeEvent $event
@@ -290,6 +336,10 @@ class TransactionSubscriber implements EventSubscriberInterface
     try {
       $order = $this->getOrder($orderId);
       if (!$order) {
+        return;
+      }
+
+      if (!$this->hasTaxJarProvider($order)) {
         return;
       }
 
@@ -653,5 +703,11 @@ class TransactionSubscriber implements EventSubscriberInterface
   private function useIncludeShippingCostForTaxCalculation(): int
   {
     return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
+  }
+
+  protected function hasTaxJarProvider(OrderEntity $order): bool
+  {
+    $customFields = $order->getCustomFields() ?? [];
+    return !empty($customFields['taxJarProvider']);
   }
 }

@@ -3,10 +3,13 @@ declare(strict_types=1);
 
 namespace solu1TaxJar;
 
+use Doctrine\DBAL\Connection;
 use Shopware\Core\Framework\Plugin;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
+use Shopware\Core\Framework\Plugin\Context\UpdateContext;
 use Shopware\Core\Kernel;
+use solu1TaxJar\Service\UpdateOrderCustomFieldService;
 
 class solu1TaxJar extends Plugin
 {
@@ -34,5 +37,13 @@ class solu1TaxJar extends Plugin
         }
 
         parent::uninstall($uninstallContext);
+    }
+    public function update(UpdateContext $updateContext): void
+    {
+        parent::update($updateContext);
+
+        $service = new UpdateOrderCustomFieldService(
+            $this->container->get(Connection::class));
+        $service->run();
     }
 }

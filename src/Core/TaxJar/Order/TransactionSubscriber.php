@@ -519,6 +519,8 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->getAssociation('deliveries');
     $criteria->addAssociation('billingAddress.country');
     $criteria->addAssociation('billingAddress.countryState');
+    $criteria->addAssociation('deliveries.shippingOrderAddress.country');
+    $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
     return $this->orderRepository
       ->search($criteria, $this->context)
       ->get($orderId);
@@ -555,7 +557,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     $lineItems = $this->getLineItems($order);
 
-    $shippingAddress = $order->getBillingAddress();
+    $shippingAddress = $order->getDeliveries()->first()->getShippingOrderAddress();
     $billingAddress = $order->getBillingAddress();
 
     $country = $billingAddress?->getCountry()?->getIso();

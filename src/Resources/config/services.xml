@@ -79,5 +79,10 @@
                 <argument type="service" id="service_container"/>
             </call>
         </service>
+
+        <service id="solu1TaxJar\Service\UpdateOrderCustomFieldService">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+        </service>
+
     </services>
 </container>

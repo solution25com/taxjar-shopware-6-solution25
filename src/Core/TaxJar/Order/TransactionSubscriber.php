@@ -298,6 +298,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
+      if($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() != 'shipped'){
+          return;
+      }
+
+
       $this->salesChannelId = $order->getSalesChannelId();
 
       $existTransactionId = $this->getExistTransactionId($orderId);
@@ -516,11 +521,13 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->getAssociation('billingAddress');
     $criteria->getAssociation('addresses');
     $criteria->getAssociation('deliveries');
+    $criteria->getAssociation('deliveries.stateMachineState');
     $criteria->getAssociation('deliveries');
     $criteria->addAssociation('billingAddress.country');
     $criteria->addAssociation('billingAddress.countryState');
     $criteria->addAssociation('deliveries.shippingOrderAddress.country');
     $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
+    $criteria->addAssociation('stateMachineState');
     return $this->orderRepository
       ->search($criteria, $this->context)
       ->get($orderId);

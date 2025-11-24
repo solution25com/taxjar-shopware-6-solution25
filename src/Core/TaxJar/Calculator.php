@@ -308,11 +308,10 @@ class Calculator implements TaxCalculatorInterface
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
     }
 
-    private function _getCustomerGroupToExempt(): ?array
+    private function _getCustomerGroupToExempt(): array|null
     {
         return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
     }
-
 
     /**
      * @return int

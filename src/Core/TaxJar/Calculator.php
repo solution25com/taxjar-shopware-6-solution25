@@ -313,7 +313,6 @@ class Calculator implements TaxCalculatorInterface
         return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
     }
 
-
     /**
      * @return int
      */

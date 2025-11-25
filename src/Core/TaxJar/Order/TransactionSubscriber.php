@@ -163,7 +163,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         'id' => $order->getId(),
         'customFields' => array_merge(
           $order->getCustomFields() ?? [],
-          ['taxJarProvider' => true]
+          ['taxJar' => true]
         ),
       ]], $context);
     }
@@ -716,7 +716,8 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   protected function hasTaxJarProvider(OrderEntity $order): bool
   {
-    $customFields = $order->getCustomFields() ?? [];
-    return !empty($customFields['taxJarProvider']);
+    return true;
+//    $customFields = $order->getCustomFields() ?? [];
+//    return !empty($customFields['taxJarProvider']);
   }
 }

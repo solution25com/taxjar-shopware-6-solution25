@@ -142,8 +142,10 @@ class Calculator implements TaxCalculatorInterface
           // If customer ID is null, then check for a customer group, which means if customer is registered on TaxJar,
           // the customer group rule should not be applied
 
-          if ($taxjarCustomerId === null && in_array($customerGroup, $customerGroupToExempt, true)) {
-            $cartInfo["exemption_type"] = "other";
+          if ($taxjarCustomerId !== null) {
+            $cartInfo['exemption_type'] = $customFields['taxjar_exemption_type'] ?? null;
+          } elseif (in_array($customerGroup, $customerGroupToExempt, true)) {
+            $cartInfo['exemption_type'] = 'other';
           }
 
             $request = array_merge($shippingFromAddress, $cartInfo);

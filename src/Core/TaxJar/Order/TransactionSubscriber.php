@@ -4,10 +4,9 @@ namespace solu1TaxJar\Core\TaxJar\Order;
 
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
-use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Entity;
+use Shopware\Core\System\StateMachine\Event\StateMachineTransitionEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
-use solu1TaxJar\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
@@ -129,46 +128,12 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     return [
       OrderEvents::ORDER_DELETED_EVENT => 'onOrderDeleted',
-      CheckoutOrderPlacedEvent::class => 'onOrderPlaced',
       'state_enter.order_delivery.state.shipped' => 'onOrderShipped',
       'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel',
       'state_enter.order_transaction.state.paid' => 'onOrderStatePaid',
       'state_enter.order_transaction.state.refunded' => 'onOrderRefund',
     ];
   }
-
-  /**
-   * @param CheckoutOrderPlacedEvent $event
-   * @return void
-   */
-  public function onOrderPlaced(CheckoutOrderPlacedEvent $event): void
-  {
-    $order = $event->getOrder();
-    $context = $event->getContext();
-    $lineItems = $order->getLineItems();
-
-    $hasTaxJar = false;
-
-    foreach ($lineItems as $item) {
-      $payload = $item->getPayload();
-
-      if (isset($payload['taxJarRate'])) {
-        $hasTaxJar = true;
-        break;
-      }
-    }
-
-    if ($hasTaxJar) {
-      $this->orderRepository->update([[
-        'id' => $order->getId(),
-        'customFields' => array_merge(
-          $order->getCustomFields() ?? [],
-          ['taxJar' => true]
-        ),
-      ]], $context);
-    }
-  }
-
 
   /**
    * @param OrderStateMachineStateChangeEvent $event
@@ -256,10 +221,6 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if (!$this->hasTaxJarProvider($order)) {
-        return;
-      }
-
       $existTransactionId = $this->getExistTransactionId($orderId);
       $logInfo = $this->getDeleteLogInfo($orderId);
       $orderId = $existTransactionId ?: $orderId;
@@ -293,16 +254,9 @@ class TransactionSubscriber implements EventSubscriberInterface
       if (!$order) {
         return;
       }
-
-      if (!$this->hasTaxJarProvider($order)) {
-        return;
-      }
-
       if($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() != 'shipped'){
           return;
       }
-
-
       $this->salesChannelId = $order->getSalesChannelId();
 
       $existTransactionId = $this->getExistTransactionId($orderId);
@@ -341,10 +295,6 @@ class TransactionSubscriber implements EventSubscriberInterface
     try {
       $order = $this->getOrder($orderId);
       if (!$order) {
-        return;
-      }
-
-      if (!$this->hasTaxJarProvider($order)) {
         return;
       }
 
@@ -513,7 +463,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     return $transactionId;
   }
 
-  private function getOrder($orderId): ?Entity
+  private function getOrder($orderId): ?OrderEntity
   {
     $criteria = new Criteria([$orderId]);
     $criteria->getAssociation('lineItems');
@@ -521,12 +471,11 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->getAssociation('billingAddress');
     $criteria->getAssociation('addresses');
     $criteria->getAssociation('deliveries');
-    $criteria->getAssociation('deliveries.stateMachineState');
-    $criteria->getAssociation('deliveries');
-    $criteria->addAssociation('billingAddress.country');
-    $criteria->addAssociation('billingAddress.countryState');
+    $criteria->getAssociation('deliveries.shippingOrderAddress');
     $criteria->addAssociation('deliveries.shippingOrderAddress.country');
     $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
+    $criteria->addAssociation('billingAddress.country');
+    $criteria->addAssociation('billingAddress.countryState');
     $criteria->addAssociation('stateMachineState');
     return $this->orderRepository
       ->search($criteria, $this->context)
@@ -564,12 +513,28 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     $lineItems = $this->getLineItems($order);
 
-    $shippingAddress = $order->getDeliveries()->first()->getShippingOrderAddress();
-    $billingAddress = $order->getBillingAddress();
+    $shippingOrderAddress = null;
+    if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
+      $firstDelivery = $order->getDeliveries()->first();
+      if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
+        $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
+      }
+    }
 
-    $country = $billingAddress?->getCountry()?->getIso();
-    $shortCode = $billingAddress?->getCountryState()?->getShortCode();
-    $state = explode('-', $shortCode)[1];
+    $billingAddress = $order->getBillingAddress();
+    $destinationAddress = $shippingOrderAddress ?: $billingAddress;
+
+    $countryIso = $destinationAddress?->getCountry()?->getIso();
+    $shortCode = $destinationAddress?->getCountryState()?->getShortCode();
+    $state = null;
+    if ($shortCode) {
+      $parts = explode('-', $shortCode);
+      $state = $parts[1] ?? null;
+    }
+    if (!$state && $countryIso) {
+      $countryParts = explode('-', $countryIso);
+      $state = $countryParts[1] ?? null;
+    }
 
     $orderTotalAmount += $order->getShippingTotal();
 
@@ -593,11 +558,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         'transaction_id' => $transactionId,
         'transaction_date' => $order->getOrderDate()->format('Y/m/d'),
         'customer_id' => $taxjarCustomerId,
-        'to_country' => $country,
-        'to_zip' => $shippingAddress ? $shippingAddress->getZipcode() : $billingAddress?->getZipcode(),
+        'to_country' => $countryIso,
+        'to_zip' => $destinationAddress?->getZipcode(),
         'to_state' => $state,
-        'to_city' => $shippingAddress->getCity(),
-        'to_street' => $shippingAddress->getStreet(),
+        'to_city' => $destinationAddress?->getCity(),
+        'to_street' => $destinationAddress?->getStreet(),
         'amount' => $orderTotalAmount,
         'shipping' => $order->getShippingTotal(),
         'sales_tax' => $orderTaxAmount + $shippingTaxAmount,
@@ -712,12 +677,5 @@ class TransactionSubscriber implements EventSubscriberInterface
   private function useIncludeShippingCostForTaxCalculation(): int
   {
     return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
-  }
-
-  protected function hasTaxJarProvider(OrderEntity $order): bool
-  {
-    return true;
-//    $customFields = $order->getCustomFields() ?? [];
-//    return !empty($customFields['taxJarProvider']);
   }
 }

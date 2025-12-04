@@ -298,7 +298,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() != 'shipped'){
+      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped'){
           return;
       }
 
@@ -311,6 +311,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $orderDetail = $this->getOrderDetail($order);
+      $orderDetail['transaction_reference_id'] = $orderDetail['transaction_id'];
       $orderDetail['transaction_id'] = $orderId . '_refund';
 
       $logInfo = $this->getLogInfo($order, $orderDetail, self::ORDER_REFUND_REQUEST_TYPE);
@@ -524,9 +525,9 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->getAssociation('deliveries.shippingOrderAddress');
     $criteria->addAssociation('deliveries.shippingOrderAddress.country');
     $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
+    $criteria->addAssociation('deliveries.stateMachineState');
     $criteria->addAssociation('billingAddress.country');
     $criteria->addAssociation('billingAddress.countryState');
-    $criteria->addAssociation('stateMachineState');
     return $this->orderRepository
       ->search($criteria, $this->context)
       ->get($orderId);

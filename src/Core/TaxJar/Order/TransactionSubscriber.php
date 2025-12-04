@@ -513,7 +513,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     return $transactionId;
   }
 
-  private function getOrder($orderId): ?Entity
+  private function getOrder($orderId): ?OrderEntity
   {
     $criteria = new Criteria([$orderId]);
     $criteria->getAssociation('lineItems');
@@ -521,12 +521,11 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->getAssociation('billingAddress');
     $criteria->getAssociation('addresses');
     $criteria->getAssociation('deliveries');
-    $criteria->getAssociation('deliveries.stateMachineState');
-    $criteria->getAssociation('deliveries');
-    $criteria->addAssociation('billingAddress.country');
-    $criteria->addAssociation('billingAddress.countryState');
+    $criteria->getAssociation('deliveries.shippingOrderAddress');
     $criteria->addAssociation('deliveries.shippingOrderAddress.country');
     $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
+    $criteria->addAssociation('billingAddress.country');
+    $criteria->addAssociation('billingAddress.countryState');
     $criteria->addAssociation('stateMachineState');
     return $this->orderRepository
       ->search($criteria, $this->context)
@@ -564,12 +563,28 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     $lineItems = $this->getLineItems($order);
 
-    $shippingAddress = $order->getDeliveries()->first()->getShippingOrderAddress();
-    $billingAddress = $order->getBillingAddress();
+    $shippingOrderAddress = null;
+    if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
+      $firstDelivery = $order->getDeliveries()->first();
+      if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
+        $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
+      }
+    }
 
-    $country = $billingAddress?->getCountry()?->getIso();
-    $shortCode = $billingAddress?->getCountryState()?->getShortCode();
-    $state = explode('-', $shortCode)[1];
+    $billingAddress = $order->getBillingAddress();
+    $destinationAddress = $shippingOrderAddress ?: $billingAddress;
+
+    $countryIso = $destinationAddress?->getCountry()?->getIso();
+    $shortCode = $destinationAddress?->getCountryState()?->getShortCode();
+    $state = null;
+    if ($shortCode) {
+      $parts = explode('-', $shortCode);
+      $state = $parts[1] ?? null;
+    }
+    if (!$state && $countryIso) {
+      $countryParts = explode('-', $countryIso);
+      $state = $countryParts[1] ?? null;
+    }
 
     $orderTotalAmount += $order->getShippingTotal();
 
@@ -593,11 +608,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         'transaction_id' => $transactionId,
         'transaction_date' => $order->getOrderDate()->format('Y/m/d'),
         'customer_id' => $taxjarCustomerId,
-        'to_country' => $country,
-        'to_zip' => $shippingAddress ? $shippingAddress->getZipcode() : $billingAddress?->getZipcode(),
+        'to_country' => $countryIso,
+        'to_zip' => $destinationAddress?->getZipcode(),
         'to_state' => $state,
-        'to_city' => $shippingAddress->getCity(),
-        'to_street' => $shippingAddress->getStreet(),
+        'to_city' => $destinationAddress?->getCity(),
+        'to_street' => $destinationAddress?->getStreet(),
         'amount' => $orderTotalAmount,
         'shipping' => $order->getShippingTotal(),
         'sales_tax' => $orderTaxAmount + $shippingTaxAmount,

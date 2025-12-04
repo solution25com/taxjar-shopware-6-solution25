@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.1.9] - 2025-12-04
+
+###  Bug Fixes
+
+- Refactor TaxJar integration; remove unused update method, clean up event handling, and improve address handling in transaction processing
+
+---
+
 ## [1.1.1] - 2025-10-08
 
 ###  Bug Fixes

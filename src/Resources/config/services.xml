@@ -62,6 +62,7 @@
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTaskHandler">
             <argument type="service" id="scheduled_task.repository"/>
+            <argument type="service" id="logger"/>
             <argument type="service" id="s25_taxjar_log.repository" />
             <tag name="messenger.message_handler" />
         </service>

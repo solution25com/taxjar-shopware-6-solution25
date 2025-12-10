@@ -8,6 +8,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Sorting\FieldSorting;
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskHandler;
+use Psr\Log\LoggerInterface;
 
 class CleanLogTaskHandler extends ScheduledTaskHandler
 {
@@ -20,14 +21,16 @@ class CleanLogTaskHandler extends ScheduledTaskHandler
 
     /**
      * @param EntityRepository $scheduledTaskRepository
+     * @param LoggerInterface $exceptionLogger
      * @param EntityRepository $runRepository
      */
     public function __construct(
         EntityRepository $scheduledTaskRepository,
+        LoggerInterface $exceptionLogger,
         EntityRepository $runRepository
     )
     {
-        parent::__construct($scheduledTaskRepository);
+      parent::__construct($scheduledTaskRepository, $exceptionLogger);
         $this->logRepository = $runRepository;
     }
 

@@ -5,7 +5,6 @@ namespace solu1TaxJar\Core\TaxJar\Order;
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
-use Shopware\Core\Framework\DataAbstractionLayer\Entity;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use solu1TaxJar\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
@@ -298,8 +297,14 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped'){
-          return;
+      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped') {
+        $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
+
+        if ($selectedFlow === 'ship') {
+          if ($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() !== 'shipped') {
+            return;
+          }
+        }
       }
 
 

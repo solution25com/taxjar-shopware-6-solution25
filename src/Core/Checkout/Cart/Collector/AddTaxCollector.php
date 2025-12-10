@@ -15,7 +15,8 @@ use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use solu1TaxJar\Core\Content\Extension\TaxExtensionEntity;
 use solu1TaxJar\Core\Content\TaxProvider\TaxProviderEntity;
 use solu1TaxJar\Core\Tax\TaxCalculatorRegistry;
-
+use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
+use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 class AddTaxCollector implements CartProcessorInterface
 {
     /**
@@ -133,31 +134,38 @@ class AddTaxCollector implements CartProcessorInterface
                     }
 
                     foreach ($products as $product) {
-                        $productId = $product->getReferencedId();
-                        if (!empty($lineItemsTax[$productId])) {
-                            $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
-                            foreach ($calculatedTaxes as $calculatedTax) {
-                                $taxAmount = $lineItemsTax[$productId];
+                      $productId = $product->getReferencedId();
 
-                                if ($shippingTaxFromServiceProvider) {
-                                    $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
-                                    $shippingTaxFromServiceProvider = 0;
-                                }
+                      if (!empty($lineItemsTax[$productId])) {
 
-                                $calculatedTax->setTax($taxAmount);
+                        $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
 
-                                if (isset($lineItemsTax['rate'])) {
-                                    $calculatedTax->assign([
-                                        'taxRate' => (float)number_format(
-                                            (float)$lineItemsTax['rate'] * 100,
-                                            2,
-                                            '.',
-                                            ''
-                                        )
-                                    ]);
-                                }
-                            }
+                        $providerRate = isset($lineItemsTax['rate']) ? (float)$lineItemsTax['rate'] * 100 : 0;
+
+                        $product->getPrice()->assign([
+                          'taxRules' => new TaxRuleCollection([
+                            new TaxRule($providerRate)
+                          ])
+                        ]);
+
+                        foreach ($calculatedTaxes as $calculatedTax) {
+
+                          $taxAmount = (float)$lineItemsTax[$productId];
+
+                          if ($shippingTaxFromServiceProvider) {
+                            $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
+                            $shippingTaxFromServiceProvider = 0;
+                          }
+
+                          $calculatedTax->setTax($taxAmount);
+
+                          if ($providerRate > 0) {
+                            $calculatedTax->assign([
+                              'taxRate' => $providerRate
+                            ]);
+                          }
                         }
+                      }
                     }
 
                     if (!empty($lineItemsTax['shippingTax'])) {

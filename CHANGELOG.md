@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [v1.2.0] - 2025-12-10
+
+### New Features
+
+- Support for Shopware Commercial Return Management
+- Tax Calculation for Returns
+
+---
+
 ## [1.1.9] - 2025-12-04
 
 ###  Bug Fixes

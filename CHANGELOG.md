@@ -10,7 +10,15 @@ All notable changes to this project will be documented in this file.
 
 - Support for Shopware Commercial Return Management
 - Tax Calculation for Returns
-
+- Customer Tax Exemption Support
+  - Added support for customer tax exemption handling via custom fields.
+  - Introduced TaxJar-specific custom fields on the **Customer** entity:
+    - Exemption type
+    - Exempt regions
+  - Exemption data is now included in all TaxJar rate calculation API calls, allowing TaxJar to correctly return **$0 tax** for exempt customers.
+  - Enables proper tax-exempt flows aligned with TaxJar’s official API instead of client-side tax removal only.
+  - Includes a database migration to add the required custom fields and calculator updates to pass exemption data to TaxJar.
+    
 ---
 
 ## [1.1.9] - 2025-12-04

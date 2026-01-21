@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [v1.2.1] - 2026-01-21
+
+### Fixes
+- Improved amount-based tax application based on the TaxJar breakdown.
+- If TaxJar returns shipping tax = 0, Shopware shipping tax stays 0.
+- If TaxJar returns shipping tax > 0, shipping tax is applied exactly as returned.
+- Prevented item tax leaking into shipping (shipping tax is explicitly “locked”).
+- Zip/State mismatch handling: Detects TaxJar /taxes zip/state mismatch errors.
+- Attempts a state-level fallback where possible.
+- If fallback fails, checkout is never blocked, tax proceeds as 0, and the order is flagged for manual review.
+- Logging: Zip/state mismatch cases are logged in s25_taxjar_log with a clear type (Tax Calculation - Address Mismatch).
+
+---
+
 ## [v1.2.0] - 2025-12-10
 
 ### New Features

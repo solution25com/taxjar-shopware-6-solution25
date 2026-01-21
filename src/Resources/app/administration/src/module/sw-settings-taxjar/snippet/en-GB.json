@@ -4,7 +4,12 @@
             "textHeadline": "Tax service provider settings",
             "buttonSave": "Save",
             "buttonLog": "TaxJar Log",
-            "testButtonLabel": "Test Connection"
+            "testButtonLabel": "Test Connection",
+            "ruleCardTitle": "Rule-based TaxJar behavior",
+            "shippingNonTaxableLabel": "Rule: Shipping is non-taxable (fallback / native)",
+            "shippingNonTaxableHelp": "Select a rule (e.g. US states) where shipping should not be taxed when native Shopware taxes are used.",
+            "bypassLabel": "Rules: Bypass TaxJar (use native tax)",
+            "bypassHelp": "Select one or more rules (e.g. US states) where TaxJar should NOT be used and native Shopware tax tables should apply. Leave empty to always use TaxJar."
         },
         "testConnection": {
             "error": "Please provide valid API token",

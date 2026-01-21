@@ -16,6 +16,12 @@ Component.register('sw-settings-taxjar', {
         };
     },
 
+    computed: {
+        systemConfigLoading() {
+            return this.$refs.systemConfig ? this.$refs.systemConfig.isLoading : false;
+        },
+    },
+
     metaInfo() {
         return {
             title: this.$createTitle(),
@@ -33,14 +39,14 @@ Component.register('sw-settings-taxjar', {
             };
             return headers;
         },
-        testConnection(){
+        testConnection() {
             let inputData = this.$refs.systemConfig.actualConfigData[null];
             let apiBasePath = Shopware.Context.api.basePath;
-            let url = apiBasePath + "/api/_action/tax-jar/test-connection";
-            let token = inputData["solu1TaxJar.setting.liveApiToken"];
-            let selectedCommitFlows = inputData["solu1TaxJar.setting.selectedCommitFlows"];
-            if (inputData["solu1TaxJar.setting.sandboxMode"]) {
-                token = inputData["solu1TaxJar.setting.sandboxApiToken"];
+            let url = `${apiBasePath}/api/_action/tax-jar/test-connection`;
+            let token = inputData['solu1TaxJar.setting.liveApiToken'];
+
+            if (inputData['solu1TaxJar.setting.sandboxMode']) {
+                token = inputData['solu1TaxJar.setting.sandboxApiToken'];
             }
             let raw = JSON.stringify({
                 "token": token,
@@ -54,43 +60,46 @@ Component.register('sw-settings-taxjar', {
             });
             let header = {
                 method:"POST",
-                headers:this.basicHeaders(),
+                headers: this.basicHeaders(),
                 body: raw,
                 redirect: 'follow'
             };
-            fetch(url,header) .then(response => response.json())
-                .then(repos => {
-                try {
-                    if(repos.error) {
-                        let errorMessage = repos.detail;
-                        errorMessage = errorMessage.replace(/from_street/g, 'Shipping From Street')
-                            .replace(/from_country/g, 'Shipping From Country')
-                            .replace(/from_zip/g, 'Shipping From ZipCode')
-                            .replace(/from_state/g, 'Shipping From State Code')
-                            .replace(/from_city/g, 'Shipping From City');
-                        if (errorMessage.includes('Shipping From State Code')) {
+
+            fetch(url, header)
+                .then((response) => response.json())
+                .then((repos) => {
+                    try {
+                        if (repos.error) {
+                            let errorMessage = repos.detail;
+                            errorMessage = errorMessage
+                                .replace(/from_street/g, 'Shipping From Street')
+                                .replace(/from_country/g, 'Shipping From Country')
+                                .replace(/from_zip/g, 'Shipping From ZipCode')
+                                .replace(/from_state/g, 'Shipping From State Code')
+                                .replace(/from_city/g, 'Shipping From City');
+                            if (errorMessage.includes('Shipping From State Code')) {
                             errorMessage += '.Please provide valid Shipping From State Code Ex: WI for Wisconsin!'
-                        }
-                        this.createNotificationError({
+                            }
+                            this.createNotificationError({
                             message: errorMessage
-                        });
-                    } else {
-                        this.createNotificationSuccess({
+                            });
+                        } else {
+                            this.createNotificationSuccess({
                             message: this.$tc('sw-settings-taxjar.testConnection.success')
+                            });
+                        }
+                    } catch (error) {
+                        this.createNotificationError({
+                        message: error
                         });
                     }
-                } catch (error) {
-                    this.createNotificationError({
-                        message: error
-                    });
-                }
             }).catch((error)=>{
-                this.createNotificationError({
+                    this.createNotificationError({
                     message: error+'.Please review logs for more detail!'
+                    });
                 });
-            });
         },
-        validateInput(){
+        validateInput() {
             let inputData = this.$refs.systemConfig.actualConfigData[null];
             let hasError = false;
             if (!inputData["solu1TaxJar.setting.sandboxMode"]) {
@@ -102,10 +111,10 @@ Component.register('sw-settings-taxjar', {
                 }
             } else {
                 if (!inputData["solu1TaxJar.setting.sandboxApiToken"]) {
-                    this.createNotificationError({
+                this.createNotificationError({
                         message: 'Provide Valid Sandbox API Token'
-                    });
-                    hasError = true;
+                });
+                hasError = true;
                 }
             }
 
@@ -146,11 +155,11 @@ Component.register('sw-settings-taxjar', {
                 hasError = true;
             } else {
                 if (inputData["solu1TaxJar.setting.shippingFromState"].length > 3) {
-                    this.createNotificationError({
+                this.createNotificationError({
                         message: 'Provide Valid Shipping From State Code Ex: WI For Wisconsin'
-                    });
-                    hasError = true;
-                }
+                });
+                hasError = true;
+            }
             }
             if (!inputData["solu1TaxJar.setting.shippingFromCountry"]) {
                 this.createNotificationError({
@@ -159,7 +168,7 @@ Component.register('sw-settings-taxjar', {
                 hasError = true;
             }
             if (hasError) {
-               return false;
+                return false;
             }
             return true;
         },
@@ -171,14 +180,14 @@ Component.register('sw-settings-taxjar', {
             }
             this.isLoading = true;
             this.$refs.systemConfig.saveAll().then(() => {
-                this.isLoading = false;
-                this.isSaveSuccessful = true;
+                    this.isLoading = false;
+                    this.isSaveSuccessful = true;
             }).catch((err) => {
-                this.isLoading = false;
-                this.createNotificationError({
-                    message: err,
+                    this.isLoading = false;
+                    this.createNotificationError({
+                        message: err,
+                    });
                 });
-            });
         },
         onLoadingChanged(loading) {
             this.isLoading = loading;

@@ -1,19 +1,21 @@
 <?php
 
+declare(strict_types=1);
+
 namespace solu1TaxJar\Core\TaxJar;
 
+use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Psr7\Request as GRequest;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
-use Shopware\Core\Content\Product\ProductEntity;
-use Shopware\Core\System\SalesChannel\SalesChannelContext;
-use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Shopware\Core\Checkout\Cart\Cart;
-use GuzzleHttp\Client;
-use GuzzleHttp\Psr7\Request as GRequest;
+use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
-use Psr\Cache\CacheItemPoolInterface;
+use Shopware\Core\System\SalesChannel\SalesChannelContext;
+use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
 
 class Calculator implements TaxCalculatorInterface
@@ -21,6 +23,8 @@ class Calculator implements TaxCalculatorInterface
     private const CACHE_ID = 's25_tax_jar_response_';
 
     public const REQUEST_TYPE = 'Tax Calculation';
+
+    private const REQUEST_TYPE_ADDRESS_MISMATCH = 'Tax Calculation - Address Mismatch';
 
     public const VERSION = '1.10.4';
     public const LIVE_API_URL = 'https://api.taxjar.com/v2';
@@ -71,8 +75,7 @@ class Calculator implements TaxCalculatorInterface
         EntityRepository       $taxJarLogRepository,
         EntityRepository       $productRepository,
         CacheItemPoolInterface $cache
-    )
-    {
+    ) {
         $this->restClient = new Client();
         $this->systemConfigService = $systemConfigService;
         $this->taxJarLogRepository = $taxJarLogRepository;
@@ -124,29 +127,27 @@ class Calculator implements TaxCalculatorInterface
             $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
 
             $cartInfo = [
-              "to_country" => $shippingAddress->getCountry()->getIso(),
-              "to_zip" => $shippingAddress->getZipcode(),
-              "to_state" => $stateCode[1] ?? $stateName,
-              "to_city" => $shippingAddress->getCity(),
-              "to_street" => $shippingAddress->getStreet(),
-              "amount" => ($priceAfterProcessLineItems > 0)
+              'to_country' => $shippingAddress->getCountry()->getIso(),
+              'to_zip' => $shippingAddress->getZipcode(),
+              'to_state' => $stateCode[1] ?? $stateName,
+              'to_city' => $shippingAddress->getCity(),
+              'to_street' => $shippingAddress->getStreet(),
+              'amount' => ($priceAfterProcessLineItems > 0)
                 ? $this->cartTotal
                 : $cart->getPrice()->getTotalPrice(),
-              "shipping" => $this->useIncludeShippingCostForTaxCalculation()
+              'shipping' => $this->useIncludeShippingCostForTaxCalculation()
                 ? $cart->getShippingCosts()->getUnitPrice()
                 : 0,
-              "line_items" => $lineItems,
-              "customer_id" => $taxjarCustomerId,
+              'line_items' => $lineItems,
+              'customer_id' => $taxjarCustomerId,
               ];
 
-          // If customer ID is null, then check for a customer group, which means if customer is registered on TaxJar,
-          // the customer group rule should not be applied
 
-          if ($taxjarCustomerId !== null) {
-            $cartInfo['exemption_type'] = $customFields['taxjar_exemption_type'] ?? null;
-          } elseif (in_array($customerGroup, $customerGroupToExempt, true)) {
-            $cartInfo['exemption_type'] = 'other';
-          }
+            if ($taxjarCustomerId !== null) {
+                $cartInfo['exemption_type'] = $customFields['taxjar_exemption_type'] ?? null;
+            } elseif (in_array($customerGroup, $customerGroupToExempt, true)) {
+                $cartInfo['exemption_type'] = 'other';
+            }
 
             $request = array_merge($shippingFromAddress, $cartInfo);
             $storedResponse = $this->getResponseFromCache(serialize($request));
@@ -155,6 +156,26 @@ class Calculator implements TaxCalculatorInterface
                 $taxInformation = $storedResponse;
             } else {
                 $taxInformation = $this->_getTaxRateWithHttpRequest($context, $request);
+
+                if ($this->isZipStateMismatchError($taxInformation)) {
+                    $this->logAddressMismatch($context, $request, $taxInformation, 'initial');
+
+                    $fallbackRequest = $request;
+                    $fallbackRequest['to_zip'] = null;
+                    $fallbackRequest['to_city'] = null;
+                    $fallbackRequest['to_street'] = null;
+
+                    $fallbackTaxInformation = $this->_getTaxRateWithHttpRequest($context, $fallbackRequest);
+
+                    if (isset($fallbackTaxInformation['breakdown']['line_items'])) {
+                        $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_success');
+                        $taxInformation = $fallbackTaxInformation;
+                    } else {
+                        if ($this->isZipStateMismatchError($fallbackTaxInformation) || isset($fallbackTaxInformation['error'])) {
+                            $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_failed');
+                        }
+                    }
+                }
             }
 
             if (isset($taxInformation['breakdown']['line_items'])) {
@@ -175,6 +196,10 @@ class Calculator implements TaxCalculatorInterface
                 }
                 return $processedResponse;
             }
+
+            if ($this->isZipStateMismatchError($taxInformation)) {
+                return ['taxjar_address_mismatch' => true];
+            }
         }
         return false;
     }
@@ -190,20 +215,21 @@ class Calculator implements TaxCalculatorInterface
         foreach ($lineItems as $key => $productInfo) {
             if (isset($productInfo['id']) && $productInfo['id']) {
                 $quantity = $lineItems[$key]['quantity'];
-                $product = $this->getProduct($productInfo['id'], $context);
+                $discount = $lineItems[$key]['discount'] ?? 0;
+                $product = $this->getProduct($productInfo['product_id'] ?? $productInfo['id'], $context);
                 if ($useGrossPriceForCalculation) {
                     $priceCollection = $product->getPrice();
                     foreach ($priceCollection as $price) {
                         if ($price->getGross()) {
                             $lineItems[$key]['unit_price'] = $price->getGross();
-                            $this->cartTotal = $this->cartTotal + ($price->getGross() * $quantity);
+                            $this->cartTotal = $this->cartTotal + (($price->getGross() * $quantity) - $discount);
                         }
                     }
                 } else {
-                    $this->cartTotal = $this->cartTotal + ($lineItems[$key]['unit_price'] * $quantity);
+                    $this->cartTotal = $this->cartTotal + (($lineItems[$key]['unit_price'] * $quantity) - $discount);
                 }
 
-                if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+                if ($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
                     $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
                 } else {
                     // let the value to get default from configs check that in subscriber
@@ -221,7 +247,7 @@ class Calculator implements TaxCalculatorInterface
      * @param SalesChannelContext $context
      * @return ProductEntity
      */
-    private function getProduct(string $productId, SalesChannelContext $context) : ProductEntity
+    private function getProduct(string $productId, SalesChannelContext $context): ProductEntity
     {
         return $this->productRepository
             ->search(new Criteria([$productId]), $context->getContext())
@@ -237,7 +263,9 @@ class Calculator implements TaxCalculatorInterface
     {
         if (!empty($dataToLog)) {
             $this->taxJarLogRepository->create(
-                [$dataToLog], $context->getContext());
+                [$dataToLog],
+                $context->getContext()
+            );
         }
     }
 
@@ -255,7 +283,7 @@ class Calculator implements TaxCalculatorInterface
         $headers = [
             'Content-Type' => 'application/json',
             'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
-            "X-CSRF-Token" => $this->_taxJarApiToken()
+            'X-CSRF-Token' => $this->_taxJarApiToken(),
         ];
         $customer = $context->getCustomer();
         $request = new GRequest(
@@ -271,7 +299,7 @@ class Calculator implements TaxCalculatorInterface
                 'customerEmail' => $customer->getEmail(),
                 'remoteIp' => !is_null($customer->getRemoteAddress()) ? $customer->getRemoteAddress() : '',
                 'request' => json_encode($orderDetail),
-                'type' => self::REQUEST_TYPE
+                'type' => self::REQUEST_TYPE,
             ];
         }
         try {
@@ -367,11 +395,11 @@ class Calculator implements TaxCalculatorInterface
     private function getShippingOriginAddress(): array
     {
         return [
-            "from_country" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
-            "from_zip" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
-            "from_state" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
-            "from_city" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
-            "from_street" => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
+            'from_country' => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCountry', $this->salesChannelId),
+            'from_zip' => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromZip', $this->salesChannelId),
+            'from_state' => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromState', $this->salesChannelId),
+            'from_city' => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromCity', $this->salesChannelId),
+            'from_street' => $this->systemConfigService->get('solu1TaxJar.setting.shippingFromStreet', $this->salesChannelId),
         ];
     }
 
@@ -434,4 +462,47 @@ class Calculator implements TaxCalculatorInterface
         return $processedResponse;
     }
 
+
+    private function isZipStateMismatchError(mixed $taxInformation): bool
+    {
+        if (!is_array($taxInformation) || !isset($taxInformation['error']) || !is_array($taxInformation['error'])) {
+            return false;
+        }
+
+        $detail = (string)($taxInformation['error']['detail'] ?? '');
+        $message = (string)($taxInformation['error']['message'] ?? '');
+        $combined = strtolower($detail . ' ' . $message);
+
+        return str_contains($combined, 'zip')
+            && (str_contains($combined, 'state')
+                || str_contains($combined, 'postal code'))
+            && (str_contains($combined, 'mismatch')
+                || str_contains($combined, 'does not match')
+                || str_contains($combined, "isn't a valid")
+                || str_contains($combined, 'invalid'));
+    }
+
+    private function logAddressMismatch(
+        SalesChannelContext $context,
+        array $request,
+        mixed $taxInformation,
+        string $stage
+    ): void {
+        try {
+            $customer = $context->getCustomer();
+
+            $dataToLog = [
+                'requestKey' => serialize($request) . '|mismatch|' . $stage,
+                'customerName' => $customer ? ($customer->getFirstName() . ' ' . $customer->getLastName()) : '',
+                'customerEmail' => $customer ? $customer->getEmail() : '',
+                'remoteIp' => $customer && !is_null($customer->getRemoteAddress()) ? $customer->getRemoteAddress() : '',
+                'request' => json_encode($request),
+                'response' => json_encode($taxInformation),
+                'type' => self::REQUEST_TYPE_ADDRESS_MISMATCH,
+            ];
+
+            $this->logRequestResponse($dataToLog, $context);
+        } catch (\Throwable $e) {
+        }
+    }
 }

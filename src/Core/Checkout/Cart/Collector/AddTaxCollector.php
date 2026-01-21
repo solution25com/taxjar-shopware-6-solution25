@@ -9,14 +9,20 @@ use Shopware\Core\Checkout\Cart\CartBehavior;
 use Shopware\Core\Checkout\Cart\CartProcessorInterface;
 use Shopware\Core\Checkout\Cart\LineItem\CartDataCollection;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice;
+use Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTax;
+use Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection;
+use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\Struct\ArrayEntity;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
+use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Core\Content\Extension\TaxExtensionEntity;
 use solu1TaxJar\Core\Content\TaxProvider\TaxProviderEntity;
+use solu1TaxJar\Core\Rule\RuleMatcherService;
 use solu1TaxJar\Core\Tax\TaxCalculatorRegistry;
-use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
-use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
+
 class AddTaxCollector implements CartProcessorInterface
 {
     /**
@@ -31,21 +37,34 @@ class AddTaxCollector implements CartProcessorInterface
 
     private TaxCalculatorRegistry $taxCalculatorRegistry;
 
+    private SystemConfigService $systemConfigService;
+
+    private EntityRepository $ruleRepository;
+
+    private RuleMatcherService $ruleMatcher;
 
     /**
      * @param EntityRepository $taxRepository
      * @param EntityRepository $taxProviderRepository
      * @param TaxCalculatorRegistry $taxCalculatorRegistry
+     * @param SystemConfigService $systemConfigService
+     * @param EntityRepository $ruleRepository
+     * @param RuleMatcherService $ruleMatcher
      */
     public function __construct(
-        EntityRepository        $taxRepository,
-        EntityRepository        $taxProviderRepository,
-        TaxCalculatorRegistry   $taxCalculatorRegistry
-    )
-    {
+        EntityRepository      $taxRepository,
+        EntityRepository      $taxProviderRepository,
+        TaxCalculatorRegistry $taxCalculatorRegistry,
+        SystemConfigService   $systemConfigService,
+        EntityRepository      $ruleRepository,
+        RuleMatcherService    $ruleMatcher
+    ) {
         $this->taxRepository = $taxRepository;
         $this->taxProviderRepository = $taxProviderRepository;
         $this->taxCalculatorRegistry = $taxCalculatorRegistry;
+        $this->systemConfigService = $systemConfigService;
+        $this->ruleRepository = $ruleRepository;
+        $this->ruleMatcher = $ruleMatcher;
     }
 
     private function getTaxProviderClass(string $taxRuleId, array $taxRules, array $taxProviders)
@@ -80,19 +99,61 @@ class AddTaxCollector implements CartProcessorInterface
     {
         $products = $toCalculate->getLineItems()->filterType(LineItem::PRODUCT_LINE_ITEM_TYPE);
         $taxProviderMapping = [];
+        $totalDiscount = 0;
+        $totalProductAmount = 0;
+
+        foreach ($toCalculate->getLineItems() as $lineItem) {
+            $type = $lineItem->getType();
+            if ($type === LineItem::PROMOTION_LINE_ITEM_TYPE || $type === LineItem::CREDIT_LINE_ITEM_TYPE) {
+                $discountAmount = abs($lineItem->getPrice()->getTotalPrice());
+                $totalDiscount += $discountAmount;
+            }
+        }
+
+        foreach ($toCalculate->getLineItems() as $lineItem) {
+            $type = $lineItem->getType();
+            $price = $lineItem->getPrice();
+
+            if ($price && $price->getTotalPrice() < 0 &&
+                $type !== LineItem::PRODUCT_LINE_ITEM_TYPE &&
+                $type !== LineItem::PROMOTION_LINE_ITEM_TYPE &&
+                $type !== LineItem::CREDIT_LINE_ITEM_TYPE &&
+                $type !== LineItem::CONTAINER_LINE_ITEM) {
+
+                $discountAmount = abs($price->getTotalPrice());
+                $totalDiscount += $discountAmount;
+            }
+        }
+
+        foreach ($products as $product) {
+            $totalProductAmount += $product->getPrice()->getTotalPrice();
+        }
 
         $taxIds = [];
         foreach ($products as $product) {
             $taxId = $product->getPayloadValue('taxId');
             if ($taxId) {
                 $taxIds[] = $taxId;
+
+                $productAmount = $product->getPrice()->getTotalPrice();
+                $proportionalDiscount = 0;
+
+                if ($totalDiscount > 0 && $totalProductAmount > 0) {
+                    $proportionalDiscount = ($productAmount / $totalProductAmount) * $totalDiscount;
+                }
+
                 $taxProviderMapping[$taxId][] = [
-                    "id" => $product->getReferencedId(),
-                    "quantity" => $product->getPrice()->getQuantity(),
-                    "unit_price" => $product->getPrice()->getUnitPrice(),
-                    "discount" => 0
+                    'id' => $product->getId(),
+                    'product_id' => $product->getReferencedId(),
+                    'quantity' => $product->getPrice()->getQuantity(),
+                    'unit_price' => $product->getPrice()->getUnitPrice(),
+                    'discount' => $proportionalDiscount > 0 ? round($proportionalDiscount, 2) : 0,
                 ];
             }
+        }
+
+        if (empty($taxIds)) {
+            return;
         }
 
         $taxCriteria = new Criteria(array_unique($taxIds));
@@ -100,93 +161,155 @@ class AddTaxCollector implements CartProcessorInterface
 
         $providerIds = [];
         foreach ($taxRules as $taxRule) {
-          $extension = $taxRule->getExtension('taxExtension');
-          if ($extension instanceof TaxExtensionEntity && $extension->getProviderId()) {
-            $providerIds[] = $extension->getProviderId();
-          }
+            $extension = $taxRule->getExtension('taxExtension');
+            if ($extension instanceof TaxExtensionEntity && $extension->getProviderId()) {
+                $providerIds[] = $extension->getProviderId();
+            }
         }
 
         $taxProviders = [];
 
         if (!empty($providerIds)) {
-          $providerCriteria = new Criteria(array_unique($providerIds));
-          $taxProviders = $this->taxProviderRepository->search($providerCriteria, $context->getContext())->getElements();
+            $providerCriteria = new Criteria(array_unique($providerIds));
+            $taxProviders = $this->taxProviderRepository->search($providerCriteria, $context->getContext())->getElements();
         }
+
+        $bypassMatched = $this->ruleMatcher->matchesAny('bypassTaxJarRuleIds', $toCalculate, $context);
+        $shopwareShippingExemptMatched = false;
 
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
             $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);
-            if ($taxProviderClass) {
-                $lineItems = array_values($requestDetails);
+            if (!$taxProviderClass) {
+                continue;
+            }
+
+            if ($bypassMatched) {
+                $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
+                    || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
+                continue;
+            }
+
+            $lineItems = array_values($requestDetails);
+
+            try {
                 $lineItemsTax = $taxProviderClass->calculate($lineItems, $context, $original);
-                $this->addRateToCart($lineItemsTax, $toCalculate);
+            } catch (\Throwable $e) {
+                $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
+                    || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
+                continue;
+            }
 
-                if (!empty($lineItemsTax)) {
-                    $shippingTaxFromServiceProvider = 0;
-                    $methodTaxAmount = 0;
+            if (empty($lineItemsTax)) {
+                $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
+                    || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
+                continue;
+            }
 
-                    if (!empty($lineItemsTax['shippingTax'])) {
-                        $shippingTaxFromServiceProvider = $lineItemsTax['shippingTax'];
-                    }
+            if (!empty($lineItemsTax['taxjar_address_mismatch'])) {
+                $toCalculate->addExtension('taxjar_address_mismatch', new ArrayEntity([
+                    'taxjar_address_mismatch' => true,
+                ]));
 
-                    $shippingMethodCalculatedTax = $original->getShippingCosts()->getCalculatedTaxes();
-                    foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
-                        $methodTaxAmount += $methodCalculatedTax->getTax();
-                    }
+                foreach ($toCalculate->getLineItems() as $lineItem) {
+                    $lineItem->setPayloadValue('taxjar_address_mismatch', true);
+                }
 
-                    foreach ($products as $product) {
-                      $productId = $product->getReferencedId();
+                continue;
+            }
 
-                      if (!empty($lineItemsTax[$productId])) {
+            $this->addRateToCart($lineItemsTax, $toCalculate);
 
-                        $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
+            foreach ($products as $product) {
+                $productId = $product->getId();
+                if (!array_key_exists($productId, $lineItemsTax)) {
+                    continue;
+                }
 
-                        $providerRate = isset($lineItemsTax['rate']) ? (float)$lineItemsTax['rate'] * 100 : 0;
+                $taxAmount = (float) $lineItemsTax[$productId];
+                $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
 
-                        $product->getPrice()->assign([
-                          'taxRules' => new TaxRuleCollection([
-                            new TaxRule($providerRate)
-                          ])
+                foreach ($calculatedTaxes as $calculatedTax) {
+                    $calculatedTax->setTax($taxAmount);
+
+                    if (isset($lineItemsTax['rate'])) {
+                        $calculatedTax->assign([
+                            'taxRate' => (float) number_format((float) $lineItemsTax['rate'] * 100, 2, '.', ''),
                         ]);
-
-                        foreach ($calculatedTaxes as $calculatedTax) {
-
-                          $taxAmount = (float)$lineItemsTax[$productId];
-
-                          if ($shippingTaxFromServiceProvider) {
-                            $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
-                            $shippingTaxFromServiceProvider = 0;
-                          }
-
-                          $calculatedTax->setTax($taxAmount);
-
-                          if ($providerRate > 0) {
-                            $calculatedTax->assign([
-                              'taxRate' => $providerRate
-                            ]);
-                          }
-                        }
-                      }
-                    }
-
-                    if (!empty($lineItemsTax['shippingTax'])) {
-                        $shippingCalculatedTaxes = $original->getShippingCosts()->getCalculatedTaxes();
-                        foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
-                            $shippingCalculatedTax->setTax((float)0);
-                        }
                     }
                 }
+            }
+
+            $hasShippingTax = array_key_exists('shippingTax', $lineItemsTax);
+            if ($hasShippingTax) {
+                $shippingTaxFromServiceProvider = (float) $lineItemsTax['shippingTax'];
+
+                $shippingCosts = $toCalculate->getShippingCosts();
+                $shippingCalculatedTaxes = $shippingCosts->getCalculatedTaxes();
+
+                if (count($shippingCalculatedTaxes) === 0) {
+                    continue;
+                }
+
+                $lockedShippingTaxes = new CalculatedTaxCollection([
+                    new CalculatedTax($shippingTaxFromServiceProvider, 0.0, $shippingCosts->getTotalPrice()),
+                ]);
+
+                $lockedShippingCosts = new CalculatedPrice(
+                    $shippingCosts->getUnitPrice(),
+                    $shippingCosts->getTotalPrice(),
+                    $lockedShippingTaxes,
+                    new TaxRuleCollection(),
+                    $shippingCosts->getQuantity()
+                );
+
+                $deliveries = $toCalculate->getDeliveries();
+                foreach ($deliveries as $delivery) {
+                    $delivery->setShippingCosts($lockedShippingCosts);
+                }
+
+                $toCalculate->markModified();
+            }
+        }
+
+        if ($bypassMatched || $shopwareShippingExemptMatched) {
+            $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
+                || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
+
+            if ($shopwareShippingExemptMatched) {
+                $shippingCosts = $toCalculate->getShippingCosts();
+
+                $deliveries = $toCalculate->getDeliveries();
+                if ($deliveries->count() === 0) {
+                    return;
+                }
+
+                foreach ($deliveries as $delivery) {
+                    $taxRules = $shippingCosts->getTaxRules() ?? new TaxRuleCollection();
+                    $newShippingCosts = new CalculatedPrice(
+                        $shippingCosts->getUnitPrice(),
+                        $shippingCosts->getTotalPrice(),
+                        new CalculatedTaxCollection([new CalculatedTax(0, 0, 0)]),
+                        $taxRules,
+                        $shippingCosts->getQuantity()
+                    );
+
+                    $delivery->setShippingCosts($newShippingCosts);
+                }
+                $toCalculate->markModified();
             }
         }
     }
 
-    private function addRateToCart($lineItemsTax, Cart $toCalculate)
+    /**
+     * @param $lineItemsTax
+     * @param Cart $toCalculate
+     * @return void
+     */
+    private function addRateToCart($lineItemsTax, Cart $toCalculate): void
     {
-        if (isset($lineItemsTax['rate'])) {
-            $rate = $lineItemsTax['rate'];
-            if ($rate) {
-                foreach ($toCalculate->getLineItems() as $lineItem) {
-                    $lineItem->setPayloadValue('taxJarRate', $rate);
-                }
+        if (isset($lineItemsTax['rate']) && $lineItemsTax['rate']) {
+            foreach ($toCalculate->getLineItems() as $lineItem) {
+                $lineItem->setPayloadValue('taxJarRate', $lineItemsTax['rate']);
             }
         }
     }

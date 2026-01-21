@@ -19,7 +19,10 @@
             <argument type="service" id="tax.repository" />
             <argument type="service" id="s25_tax_service_provider.repository" />
             <argument type="service" id="solu1TaxJar\Core\Tax\TaxCalculatorRegistry"/>
-            <tag name="shopware.cart.processor" priority="-5500" />
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="rule.repository"/>
+            <argument type="service" id="solu1TaxJar\Core\Rule\RuleMatcherService"/>
+            <tag name="shopware.cart.processor" priority="-6000" />
         </service>
 
         <service id="solu1TaxJar\Core\TaxJar\Calculator" public="true">
@@ -28,6 +31,10 @@
             <argument type="service" id="product.repository" />
             <argument type="service" id="cache.object"/>
             <tag name="solu1.tax_calculator"/>
+        </service>
+
+        <service id="solu1TaxJar\Core\Rule\UsStateRule">
+            <tag name="shopware.rule.condition_handler" />
         </service>
 
         <service id="solu1TaxJar\Storefront\Controller\TestConnectionController" public="true">
@@ -83,6 +90,17 @@
 
         <service id="solu1TaxJar\Service\UpdateOrderCustomFieldService">
             <argument type="service" id="Doctrine\DBAL\Connection"/>
+        </service>
+
+        <service id="solu1TaxJar\Core\Rule\RuleMatcherService">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService" />
+            <argument type="service" id="rule.repository" />
+        </service>
+
+        <service id="solu1TaxJar\Subscriber\OrderAddressMismatchSubscriber">
+            <argument type="service" id="order.repository"/>
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <tag name="kernel.event_subscriber"/>
         </service>
 
     </services>

@@ -4,7 +4,12 @@
             "textHeadline": "Einstellungen des Steuerdienstanbieters",
             "buttonSave": "Speichern",
             "buttonLog": "TaxJar-Protokoll",
-            "testButtonLabel": "Verbindung testen"
+            "testButtonLabel": "Verbindung testen",
+            "ruleCardTitle": "Regelbasierte TaxJar-Steuerung",
+            "shippingNonTaxableLabel": "Regel: Versand ist nicht steuerpflichtig (Fallback / nativ)",
+            "shippingNonTaxableHelp": "Wählen Sie eine Regel (z. B. US-Bundesstaaten), in der der Versand bei Verwendung der nativen Shopware-Steuertabellen nicht besteuert werden soll.",
+            "bypassLabel": "Regeln: TaxJar umgehen (native Steuer verwenden)",
+            "bypassHelp": "Wählen Sie eine oder mehrere Regeln (z. B. US-Bundesstaaten), in denen TaxJar NICHT verwendet werden soll und stattdessen die nativen Shopware-Steuertabellen gelten. Leer lassen, um TaxJar immer zu verwenden."
         },
         "testConnection": {
             "error": "Bitte geben Sie einen gültigen API-Token ein",

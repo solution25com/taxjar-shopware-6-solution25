@@ -278,6 +278,29 @@
             <required>true</required>
         </input-field>
     </card>
+
+    <card>
+        <title>Rule-based behavior</title>
+        <component name="sw-entity-multi-id-select">
+            <name>bypassTaxJarRuleIds</name>
+            <entity>rule</entity>
+            <label>Rules: Bypass TaxJar (use native tax)</label>
+            <helpText>
+                Select one or more rules (e.g. US states) where TaxJar should NOT be used and native Shopware tax tables should apply.
+                Leave empty to always use TaxJar.
+            </helpText>
+        </component>
+        <component name="sw-entity-multi-id-select">
+            <name>shopwareShippingTaxExemptRuleIds</name>
+            <entity>rule</entity>
+            <label>Rules: Shopware shipping tax exempt</label>
+            <helpText>
+                Select one or more rules (e.g. US states) where shipping should not be taxed when using native Shopware tax tables
+                (TaxJar bypassed or failed).
+            </helpText>
+        </component>
+    </card>
+
     <card>
         <title>Customer Group to exempt</title>
         <component name="sw-entity-multi-id-select">

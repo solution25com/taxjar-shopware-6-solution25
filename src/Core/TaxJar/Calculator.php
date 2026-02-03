@@ -120,7 +120,7 @@ class Calculator implements TaxCalculatorInterface
                 $shippingAddress->getCountryState()->getName() : '';
             $shippingFromAddress = $this->getShippingOriginAddress();
             $this->cartTotal = 0;
-            $lineItems = $this->processLinceItems($lineItems, $context);
+            $lineItems = $this->processLinceItems($lineItems, $context, $cart);
             $priceAfterProcessLineItems = $this->cartTotal;
 
             $customFields = $context->getCustomer()->getCustomFields() ?? [];
@@ -209,39 +209,115 @@ class Calculator implements TaxCalculatorInterface
      * @param SalesChannelContext $context
      * @return array
      */
-    private function processLinceItems($lineItems, SalesChannelContext $context)
+    private function processLinceItems($lineItems, SalesChannelContext $context, Cart $cart): array
     {
+
         $useGrossPriceForCalculation = $this->useGrossPriceForTaxCalculation();
+        $lineItemDiscounts = $this->extractLineItemDiscountsFromCart($cart);
+
         foreach ($lineItems as $key => $productInfo) {
-            if (isset($productInfo['id']) && $productInfo['id']) {
-                $quantity = $lineItems[$key]['quantity'];
-                $discount = $lineItems[$key]['discount'] ?? 0;
-                $product = $this->getProduct($productInfo['product_id'] ?? $productInfo['id'], $context);
-                if ($useGrossPriceForCalculation) {
-                    $priceCollection = $product->getPrice();
-                    foreach ($priceCollection as $price) {
-                        if ($price->getGross()) {
-                            $lineItems[$key]['unit_price'] = $price->getGross();
-                            $this->cartTotal = $this->cartTotal + (($price->getGross() * $quantity) - $discount);
-                        }
-                    }
-                } else {
-                    $this->cartTotal = $this->cartTotal + (($lineItems[$key]['unit_price'] * $quantity) - $discount);
-                }
-
-                if ($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
-                    $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
-                } else {
-                    // let the value to get default from configs check that in subscriber
-                    $productTaxCode = $this->getDefaultProductTaxCode();
-                }
-
-                $lineItems[$key]['product_tax_code'] = $productTaxCode;
+            if (empty($productInfo['id'])) {
+                continue;
             }
+
+            $productId = $productInfo['id'];
+            $quantity  = (int) $lineItems[$key]['quantity'];
+
+            $product = $this->getProduct($productId, $context);
+
+            if ($useGrossPriceForCalculation) {
+                $priceCollection = $product->getPrice();
+                foreach ($priceCollection as $price) {
+                    if ($price->getGross()) {
+                        $lineItems[$key]['unit_price'] = $price->getGross();
+                        break;
+                    }
+                }
+            }
+
+            $unitPrice    = (float) $lineItems[$key]['unit_price'];
+            $lineSubtotal = $unitPrice * $quantity;
+
+            $lineDiscount = $lineItemDiscounts[$productId] ?? 0.0;
+            if ($lineDiscount > 0) {
+                $lineItems[$key]['discount'] = round($lineDiscount, 2);
+            }
+
+            $this->cartTotal += ($lineSubtotal - $lineDiscount);
+
+            if ($product->getCustomFields()
+                && isset($product->getCustomFields()['product_tax_code_value'])) {
+                $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+            } else {
+                $productTaxCode = $this->getDefaultProductTaxCode();
+            }
+
+            $lineItems[$key]['product_tax_code'] = $productTaxCode;
         }
+
         return $lineItems;
     }
 
+    private function extractLineItemDiscountsFromCart(Cart $cart): array
+    {
+        $discounts = [];
+
+        foreach ($cart->getLineItems() as $lineItem) {
+            if ($lineItem->getType() === 'promotion') {
+                $payload = $lineItem->getPayload();
+
+                if (!empty($payload['composition']) && is_array($payload['composition'])) {
+                    foreach ($payload['composition'] as $composition) {
+                        $refId = $composition['id'] ?? null;
+                        $discount = abs($composition['discount'] ?? 0);
+
+                        if ($refId) {
+                            $discounts[$refId] = ($discounts[$refId] ?? 0) + $discount;
+                        }
+                    }
+                }
+            }
+        }
+
+      $giftcardsExtension = $cart->getExtension('lae-giftcards');
+      $giftcardsExemptTax = $this->_getGiftCardExemptTax() ?? false;
+
+      if ($giftcardsExtension && $giftcardsExemptTax) {
+        $totalGiftCardAmount = 0.0;
+
+        foreach ($giftcardsExtension->getElements() as $giftcard) {
+          $appliedAmount = $giftcard->getAppliedAmount();
+          if ($appliedAmount > 0) {
+            $totalGiftCardAmount += $appliedAmount;
+          }
+        }
+
+        if ($totalGiftCardAmount > 0) {
+          $totalLineItemValue = 0.0;
+          $taxableLineItems = [];
+
+          foreach ($cart->getLineItems() as $lineItem) {
+            if ($lineItem->getType() === 'product') {
+              $lineItemValue = $lineItem->getPrice()->getTotalPrice();
+              if ($lineItemValue > 0) {
+                $totalLineItemValue += $lineItemValue;
+                $taxableLineItems[$lineItem->getId()] = $lineItemValue;
+              }
+            }
+          }
+
+          if ($totalLineItemValue > 0) {
+            foreach ($taxableLineItems as $productId => $lineItemValue) {
+              $proportionalDiscount = ($lineItemValue / $totalLineItemValue) * $totalGiftCardAmount;
+              $discounts[$productId] = ($discounts[$productId] ?? 0) + $proportionalDiscount;
+            }
+          }
+        }
+      }
+
+
+      return $discounts;
+    }
     /**
      * @param string $productId
      * @param SalesChannelContext $context
@@ -263,9 +339,7 @@ class Calculator implements TaxCalculatorInterface
     {
         if (!empty($dataToLog)) {
             $this->taxJarLogRepository->create(
-                [$dataToLog],
-                $context->getContext()
-            );
+                [$dataToLog], $context->getContext());
         }
     }
 
@@ -342,6 +416,11 @@ class Calculator implements TaxCalculatorInterface
     {
         return $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId);
     }
+
+  private function _getGiftCardExemptTax()
+  {
+    return $this->systemConfigService->get('solu1TaxJar.setting.giftcardsExemptTax', $this->salesChannelId);
+  }
 
     /**
      * @return int

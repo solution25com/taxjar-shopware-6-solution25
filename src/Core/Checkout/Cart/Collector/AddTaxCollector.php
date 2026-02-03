@@ -99,58 +99,21 @@ class AddTaxCollector implements CartProcessorInterface
     {
         $products = $toCalculate->getLineItems()->filterType(LineItem::PRODUCT_LINE_ITEM_TYPE);
         $taxProviderMapping = [];
-        $totalDiscount = 0;
-        $totalProductAmount = 0;
-
-        foreach ($toCalculate->getLineItems() as $lineItem) {
-            $type = $lineItem->getType();
-            if ($type === LineItem::PROMOTION_LINE_ITEM_TYPE || $type === LineItem::CREDIT_LINE_ITEM_TYPE) {
-                $discountAmount = abs($lineItem->getPrice()->getTotalPrice());
-                $totalDiscount += $discountAmount;
-            }
-        }
-
-        foreach ($toCalculate->getLineItems() as $lineItem) {
-            $type = $lineItem->getType();
-            $price = $lineItem->getPrice();
-
-            if ($price && $price->getTotalPrice() < 0 &&
-                $type !== LineItem::PRODUCT_LINE_ITEM_TYPE &&
-                $type !== LineItem::PROMOTION_LINE_ITEM_TYPE &&
-                $type !== LineItem::CREDIT_LINE_ITEM_TYPE &&
-                $type !== LineItem::CONTAINER_LINE_ITEM) {
-
-                $discountAmount = abs($price->getTotalPrice());
-                $totalDiscount += $discountAmount;
-            }
-        }
-
-        foreach ($products as $product) {
-            $totalProductAmount += $product->getPrice()->getTotalPrice();
-        }
 
         $taxIds = [];
         foreach ($products as $product) {
             $taxId = $product->getPayloadValue('taxId');
             if ($taxId) {
                 $taxIds[] = $taxId;
-
-                $productAmount = $product->getPrice()->getTotalPrice();
-                $proportionalDiscount = 0;
-
-                if ($totalDiscount > 0 && $totalProductAmount > 0) {
-                    $proportionalDiscount = ($productAmount / $totalProductAmount) * $totalDiscount;
-                }
-
                 $taxProviderMapping[$taxId][] = [
-                    'id' => $product->getId(),
-                    'product_id' => $product->getReferencedId(),
-                    'quantity' => $product->getPrice()->getQuantity(),
-                    'unit_price' => $product->getPrice()->getUnitPrice(),
-                    'discount' => $proportionalDiscount > 0 ? round($proportionalDiscount, 2) : 0,
+                    "id" => $product->getReferencedId(),
+                    "quantity" => $product->getPrice()->getQuantity(),
+                    "unit_price" => $product->getPrice()->getUnitPrice(),
+                    "discount" => 0
                 ];
             }
         }
+        $taxIds = array_values(array_unique(array_filter($taxIds)));
 
         if (empty($taxIds)) {
             return;

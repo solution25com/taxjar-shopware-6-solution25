@@ -3,10 +3,12 @@
 namespace solu1TaxJar\Core\TaxJar\Order;
 
 use Exception;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Psr7\Request;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
-use solu1TaxJar\Core\TaxJar\Request\Request;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\OrderEntity;
@@ -112,7 +114,8 @@ class TransactionSubscriber implements EventSubscriberInterface
     EntityRepository    $productRepository,
     EntityRepository    $countryRepository,
     EntityRepository    $stateRepository,
-    ClientApiService    $clientApiService
+    ClientApiService    $clientApiService,
+    ?EntityRepository $orderReturnRepository,
   )
   {
     $this->systemConfigService = $systemConfigService;
@@ -122,6 +125,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $this->countryRepository = $countryRepository;
     $this->stateRepository = $stateRepository;
     $this->clientApiService = $clientApiService;
+    $this->orderReturnRepository = $orderReturnRepository;
   }
 
   public static function getSubscribedEvents(): array
@@ -133,6 +137,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       'state_enter.order_transaction.state.cancelled' => 'onOrderStateCancel',
       'state_enter.order_transaction.state.paid' => 'onOrderStatePaid',
       'state_enter.order_transaction.state.refunded' => 'onOrderRefund',
+      'state_enter.order_transaction.state.refunded_partially' => 'onPartiallyOrderRefund',
     ];
   }
 
@@ -274,6 +279,338 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
+    } catch (\Exception $e) {
+      return;
+    }
+  }
+
+  public function onPartiallyOrderRefund(OrderStateMachineStateChangeEvent $event)
+  {
+    try {
+      $this->context = $event->getContext();
+
+      if ($this->orderReturnRepository === null) {
+        return;
+      }
+
+      $orderId = $event->getOrderId();
+      $order = $this->getOrder($orderId);
+
+      if (!$order) {
+        return;
+      }
+
+      if (!$this->hasTaxJarProvider($order)) {
+        return;
+      }
+
+      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped') {
+        $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
+
+        if ($selectedFlow === 'ship') {
+          if ($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() !== 'shipped') {
+            return;
+          }
+        }
+      }
+
+      $this->salesChannelId = $order->getSalesChannelId();
+
+      $criteria = new Criteria();
+      $criteria->addFilter(new EqualsFilter('orderId', $orderId));
+      $criteria->addAssociation('order');
+      $criteria->addAssociation('lineItems');
+
+      $orderReturn = $this->orderReturnRepository
+        ->search($criteria, $this->context)
+        ->first();
+
+      if (!$orderReturn) {
+        return;
+      }
+
+      $refundData = $this->calculatePartialRefundTax($order, $orderReturn);
+      
+      if (empty($refundData)) {
+        return;
+      }
+
+      $this->createPartialRefundTransaction($order, $refundData);
+
+    } catch (\Exception $e) {
+      return;
+    }
+  }
+
+  /**
+   * Calculate tax for partial refund using TaxJar API
+   * @param OrderEntity $order
+   * @param mixed $orderReturn
+   * @return array|null
+   */
+  private function calculatePartialRefundTax(OrderEntity $order, $orderReturn): ?array
+  {
+    try {
+      $returnedLineItems = $orderReturn->getLineItems();
+      if (!$returnedLineItems || $returnedLineItems->count() === 0) {
+        return null;
+      }
+
+      $taxLineItems = [];
+      $totalAmount = 0;
+      $totalShipping = 0;
+
+      foreach ($returnedLineItems as $returnedItem) {
+        $originalLineItem = $order->getLineItems()->get($returnedItem->getOrderLineItemId());
+        if (!$originalLineItem) {
+          continue;
+        }
+
+        $product = $this->productRepository
+          ->search(new Criteria([$originalLineItem->getProductId()]), $this->context)
+          ->get($originalLineItem->getProductId());
+
+        $productTaxCode = null;
+        if ($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
+          $productTaxCode = $product->getCustomFields()['product_tax_code_value'];
+        }
+
+        if ($product->getParentId()) {
+          $parentProduct = $this->productRepository
+            ->search(new Criteria([$product->getParentId()]), $this->context)
+            ->get($product->getParentId());
+
+          if ($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+            $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
+          }
+        }
+
+        if (!$productTaxCode) {
+          $productTaxCode = $this->getDefaultProductTaxCode();
+        }
+
+        $unitPrice = $returnedItem->getPrice()->getUnitPrice();
+        $quantity = $returnedItem->getQuantity();
+        $lineTotal = $unitPrice * $quantity;
+
+        $taxLineItem = [
+          'quantity' => $quantity,
+          'product_identifier' => $product->getProductNumber(),
+          'description' => $product->getTranslation('name'),
+          'unit_price' => $unitPrice,
+        ];
+
+        if ($productTaxCode && !strtolower($productTaxCode) == 'none') {
+          $taxLineItem['product_tax_code'] = $productTaxCode;
+        }
+
+        $taxLineItems[] = $taxLineItem;
+        $totalAmount += $lineTotal;
+      }
+
+      $shippingOrderAddress = null;
+      if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
+        $firstDelivery = $order->getDeliveries()->first();
+        if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
+          $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
+        }
+      }
+
+      $billingAddress = $order->getBillingAddress();
+      $destinationAddress = $shippingOrderAddress ?: $billingAddress;
+
+      $countryIso = $destinationAddress?->getCountry()?->getIso();
+      $shortCode = $destinationAddress?->getCountryState()?->getShortCode();
+      $state = null;
+      if ($shortCode) {
+        $parts = explode('-', $shortCode);
+        $state = $parts[1] ?? null;
+      }
+      if (!$state && $countryIso) {
+        $countryParts = explode('-', $countryIso);
+        $state = $countryParts[1] ?? null;
+      }
+
+      $originalTotal = 0;
+      foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
+        $originalTotal += $lineItem->getUnitPrice() * $lineItem->getQuantity();
+      }
+      
+      if ($originalTotal > 0) {
+        $totalShipping = ($totalAmount / $originalTotal) * $order->getShippingTotal();
+      }
+
+      $taxRequest = [
+        'to_country' => $countryIso,
+        'to_zip' => $destinationAddress?->getZipcode(),
+        'to_state' => $state,
+        'to_city' => $destinationAddress?->getCity(),
+        'to_street' => $destinationAddress?->getStreet(),
+        'amount' => $totalAmount,
+        'shipping' => $this->useIncludeShippingCostForTaxCalculation() ? $totalShipping : 0,
+        'line_items' => $taxLineItems
+      ];
+
+      $shippingFromAddress = $this->getShippingOriginAddress();
+      $taxRequest = array_merge($shippingFromAddress, $taxRequest);
+
+      $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest);
+
+      if (isset($taxResponse['error'])) {
+        return null;
+      }
+
+      return [
+        'tax_response' => $taxResponse,
+        'line_items' => $taxLineItems,
+        'total_amount' => $totalAmount,
+        'total_shipping' => $totalShipping,
+        'total_tax' => $taxResponse['amount_to_collect'] ?? 0
+      ];
+
+    } catch (\Exception $e) {
+      return null;
+    }
+  }
+
+  /**
+   * Similar method like We have onCalculator(Checkout)
+   * @param array $orderDetail
+   * @return array|mixed
+   */
+  private function _getTaxRateWithHttpRequest(array $orderDetail = [])
+  {
+    $response = [];
+    $headers = [
+      'Content-Type' => 'application/json',
+      'Authorization' => 'Bearer ' . $this->_taxJarApiToken(),
+      "X-CSRF-Token" => $this->_taxJarApiToken()
+    ];
+
+    $request = new Request(
+      'POST',
+      $this->_getApiEndPoint() . '/taxes',
+      $headers,
+      json_encode($orderDetail)
+    );
+
+    try {
+      $client = new Client();
+      $response = $client->send($request);
+    } catch (ClientException $e) {
+      $response = $e->getResponse();
+      $responseBodyAsString = $response->getBody()->getContents();
+      return ['error' => json_decode($responseBodyAsString, true)];
+    }
+
+    try {
+      $response = $response->getBody()->getContents();
+      $response = json_decode($response, true);
+      
+      if (isset($response['tax'])) {
+        return $response['tax'];
+      }
+    } catch (\Exception $e) {
+      $response['error'] = $e->getMessage();
+    }
+    
+    return $response;
+  }
+
+  /**
+   * Create partial refund transaction in TaxJar
+   * @param OrderEntity $order
+   * @param array $refundData
+   * @return void
+   */
+  private function createPartialRefundTransaction(OrderEntity $order, array $refundData): void
+  {
+    try {
+      $existTransactionId = $this->getExistTransactionId($order->getId());
+      $originalTransactionId = $existTransactionId ?: $this->getTransactionId($order);
+      
+      $refundTransactionId = $originalTransactionId . '_partial_refund_' . time();
+
+      $shippingOrderAddress = null;
+      if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
+        $firstDelivery = $order->getDeliveries()->first();
+        if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
+          $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
+        }
+      }
+
+      $billingAddress = $order->getBillingAddress();
+      $destinationAddress = $shippingOrderAddress ?: $billingAddress;
+
+      $countryIso = $destinationAddress?->getCountry()?->getIso();
+      $shortCode = $destinationAddress?->getCountryState()?->getShortCode();
+      $state = null;
+      if ($shortCode) {
+        $parts = explode('-', $shortCode);
+        $state = $parts[1] ?? null;
+      }
+      if (!$state && $countryIso) {
+        $countryParts = explode('-', $countryIso);
+        $state = $countryParts[1] ?? null;
+      }
+
+      $refundLineItems = [];
+      if (isset($refundData['tax_response']['breakdown']['line_items'])) {
+        $taxBreakdownLineItems = $refundData['tax_response']['breakdown']['line_items'];
+        
+        foreach ($refundData['line_items'] as $index => $lineItem) {
+          $taxBreakdown = $taxBreakdownLineItems[$index] ?? null;
+          
+          $refundLineItem = [
+            'quantity' => $lineItem['quantity'],
+            'product_identifier' => $lineItem['product_identifier'],
+            'description' => $lineItem['description'],
+            'unit_price' => -abs($lineItem['unit_price']),
+            'sales_tax' => $taxBreakdown ? -abs($taxBreakdown['tax_collectable']) : 0
+          ];
+
+          if (isset($lineItem['product_tax_code'])) {
+            $refundLineItem['product_tax_code'] = $lineItem['product_tax_code'];
+          }
+
+          $refundLineItems[] = $refundLineItem;
+        }
+      }
+
+      $refundRequest = [
+        'transaction_id' => $refundTransactionId,
+        'transaction_date' => (new \DateTime())->format('Y/m/d'),
+        'transaction_reference_id' => $originalTransactionId,
+        'to_country' => $countryIso,
+        'to_zip' => $destinationAddress?->getZipcode(),
+        'to_state' => $state,
+        'to_city' => $destinationAddress?->getCity(),
+        'to_street' => $destinationAddress?->getStreet(),
+        'amount' => -abs($refundData['total_amount']),
+        'shipping' => -abs($refundData['total_shipping']),
+        'sales_tax' => -abs($refundData['total_tax']),
+        'line_items' => $refundLineItems
+      ];
+
+      $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
+      $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
+      if ($taxjarCustomerId) {
+        $refundRequest['customer_id'] = $taxjarCustomerId;
+      }
+
+      $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
+      
+      $response = $this->clientApiService->sendRequest(
+        'POST',
+        $endpointUrl,
+        $this->getHeaders(),
+        $refundRequest
+      );
+
+      $logInfo = $this->getLogInfo($order, $refundRequest, self::ORDER_REFUND_REQUEST_TYPE);
+      $logInfo['response'] = $response['body'];
+      $this->logRequestResponse($logInfo);
+
     } catch (\Exception $e) {
       return;
     }
@@ -522,6 +859,7 @@ class TransactionSubscriber implements EventSubscriberInterface
   private function getOrder($orderId): ?OrderEntity
   {
     $criteria = new Criteria([$orderId]);
+    $criteria->addAssociation('orderCustomer.customer');
     $criteria->getAssociation('lineItems');
     $criteria->getAssociation('salesChannel');
     $criteria->getAssociation('billingAddress');
@@ -567,8 +905,6 @@ class TransactionSubscriber implements EventSubscriberInterface
     $orderTotalAmount = $amounts['orderTotalAmount'];
     $orderTaxAmount = $amounts['orderTaxAmount'];
 
-    $lineItems = $this->getLineItems($order);
-
     $shippingOrderAddress = null;
     if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
       $firstDelivery = $order->getDeliveries()->first();
@@ -604,11 +940,22 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
     $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
+    $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
+
+    $customerGroupId = $order->getOrderCustomer()->getCustomer()->getGroupId() ?? null;
+
+    $groupsToBeExempted = $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId) ?? [];
+
+    $isExempt =
+        (!empty($taxjarCustomerId) && !empty($exType))
+        || in_array($customerGroupId, $groupsToBeExempted, true);
+
+    $lineItems = $this->getLineItems($order, $isExempt);
 
     /** @todo Maybe should use just orderNumber $transactionId */
     $transactionId = $this->getTransactionId($order);
     $shippingFromAddress = $this->getShippingOriginAddress();
-    return array_merge(
+    $payload = array_merge(
       $shippingFromAddress,
       [
         'transaction_id' => $transactionId,
@@ -621,13 +968,21 @@ class TransactionSubscriber implements EventSubscriberInterface
         'to_street' => $destinationAddress?->getStreet(),
         'amount' => $orderTotalAmount,
         'shipping' => $order->getShippingTotal(),
-        'sales_tax' => $orderTaxAmount + $shippingTaxAmount,
+        'sales_tax' => $isExempt ? '0.0' : ($orderTaxAmount + $shippingTaxAmount),
         'line_items' => $lineItems
       ]
     );
+
+      if (!empty($taxjarCustomerId) && !empty($exType)) {
+          $payload['exemption_type'] = $exType;
+      } elseif (in_array($customerGroupId, $groupsToBeExempted, true)){
+          $payload['exemption_type'] = 'other';
+      }
+
+      return $payload;
   }
 
-  private function getLineItems(OrderEntity $order): array
+  private function getLineItems(OrderEntity $order, bool $isExempt): array
   {
     $lineItems = [];
     foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
@@ -655,16 +1010,21 @@ class TransactionSubscriber implements EventSubscriberInterface
         $productTaxCode = $this->getDefaultProductTaxCode();
       }
 
-      $lineItem = [
+        $salesTax = $lineItem->getPrice()?->getCalculatedTaxes()->getAmount() ?? '0.0';
+
+        if ($isExempt) {
+            $salesTax = '0.0';
+        }
+
+        $lineItem = [
         'quantity' => $lineItem->getQuantity(),
         'product_identifier' => $parentProduct ? $parentProduct->getProductNumber() : $product->getProductNumber(),
         'description' => $parentProduct ? $parentProduct->getTranslation('name') : $product->getTranslation('name'),
         'unit_price' => $lineItem->getUnitPrice(),
-        'sales_tax' => $lineItem->getPrice()?->getCalculatedTaxes()->getAmount()
+        'sales_tax' => $salesTax
       ];
 
-      // only send the code if it's set and it's not 'none'
-      if($productTaxCode && !strtolower($productTaxCode) == 'none') {
+      if(!empty($productTaxCode) && strtolower((string) $productTaxCode) !== 'none') {
         $lineItem['product_tax_code'] = $productTaxCode;
       }
 

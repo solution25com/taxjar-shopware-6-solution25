@@ -63,6 +63,7 @@
             <argument type="service" id="country.repository" />
             <argument type="service" id="country_state.repository" />
             <argument type="service" id="solu1TaxJar\Service\ClientApiService"/>
+            <argument type="service" id="order_return.repository" on-invalid="null"/>
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />

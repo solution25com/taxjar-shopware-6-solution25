@@ -49,6 +49,17 @@
             <defaultValue>1</defaultValue>
             <label lang="de-DE">Include Shipping Cost For Calculation</label>
         </input-field>
+        <title>Enable or Disable Tax Calculation for Gift Cards</title>
+        <input-field type="bool">
+            <name>giftcardsExemptTax</name>
+            <label>Include Gift Cards for Tax Calculation</label>
+            <label lang="de-DE">Include Gift Cards for Tax Calculation</label>
+            <helpText>
+                Enable this option to include gift cards for tax calculation.
+                Disable it to exclude gift cards in the total taxable price.
+            </helpText>
+            <defaultValue>0</defaultValue>
+        </input-field>
         <input-field type="single-select">
             <name>selectedCommitFlows</name>
             <options>

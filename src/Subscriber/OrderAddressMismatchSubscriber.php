@@ -9,6 +9,7 @@ use Doctrine\DBAL\ParameterType;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityWriteResult;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\Uuid\Uuid;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -44,26 +45,65 @@ class OrderAddressMismatchSubscriber implements EventSubscriberInterface
             return;
         }
 
-        foreach ($event->getIds() as $orderId) {
+        $writeResults = $event->getWriteResults();
+        foreach ($writeResults as $writeResult) {
+            $orderId = $this->resolveOrderId($writeResult);
+            if ($orderId === null) {
+                continue;
+            }
+
+            if ($this->writeAlreadySetMismatchFlag($writeResult)) {
+                continue;
+            }
+
             if (!$this->orderHasMismatchMarker($orderId)) {
                 continue;
             }
 
             try {
-                $this->orderRepository->upsert([
-                    [
-                        'id' => $orderId,
-                        'customFields' => [
-                            self::ORDER_CUSTOM_FIELD => true,
-                        ],
+                $payload = [
+                    'id' => $orderId,
+                    'customFields' => [
+                        self::ORDER_CUSTOM_FIELD => true,
                     ],
-                ], $context);
+                ];
+                $versionId = $writeResult->getPayload()['versionId'] ?? null;
+                if ($versionId !== null) {
+                    $payload['versionId'] = $versionId;
+                }
+                $this->orderRepository->upsert([$payload], $context);
             } catch (\Throwable $e) {
                 continue;
             }
         }
     }
+    private function writeAlreadySetMismatchFlag(EntityWriteResult $writeResult): bool
+    {
+        $payload = $writeResult->getPayload();
+        if (!\is_array($payload)) {
+            return false;
+        }
+        $customFields = $payload['customFields'] ?? [];
+        if (!\is_array($customFields)) {
+            return false;
+        }
+        $value = $customFields[self::ORDER_CUSTOM_FIELD] ?? null;
 
+        return $value === true || $value === 1 || $value === 'true' || $value === '1';
+    }
+
+    private function resolveOrderId(EntityWriteResult $writeResult): ?string
+    {
+        $getPrimaryKey = $writeResult->getPrimaryKey();
+        if (\is_string($getPrimaryKey)) {
+            return $getPrimaryKey;
+        }
+        if (\is_array($getPrimaryKey) && isset($getPrimaryKey['id'])) {
+            return $getPrimaryKey['id'];
+        }
+
+        return null;
+    }
     private function orderHasMismatchMarker(string $orderId): bool
     {
         $orderIdBytes = null;

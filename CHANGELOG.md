@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.3] - 2026-02-04
+
+### This release includes
+- Added **partial refund support**, including tax recalculation and initiating partial tax refunds on existing transactions.
+- Implemented support for **Shopware discounts and coupons** in tax calculations.
+- Added handling of **tax on order returns** using **Shopware Commercial** features.
+- Introduced **custom state tax rules**, allowing you to:
+  - Include or exclude tax per state
+  - Fallback to the default Shopware tax when TaxJar fails or does not return shipping tax  
+  (All rules are configurable via plugin settings.)
+- Shipping tax is now treated as a **separate tax line** on the storefront and displayed independently.
+- Implemented and fully tested **shipping and tax calculations for admin-created orders**.
+- Improved overall reliability of tax calculations across storefront and admin workflows.
+
+---
+
+## [v1.2.2] - 2026-02-03
+
+### Changes
+- Enhanced tax calculation and refund handling for gift cards and partial refunds.
+- Refactored and simplified tax calculation logic in `AddTaxCollector` and `Calculator`.
+
 ---
 
 ## [v1.2.1] - 2026-01-21

@@ -96,6 +96,7 @@ class TransactionSubscriber implements EventSubscriberInterface
    * @var ClientApiService
    */
   private ClientApiService $clientApiService;
+  private ?EntityRepository $orderReturnRepository;
 
 
     /**

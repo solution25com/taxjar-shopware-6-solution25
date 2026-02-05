@@ -12,6 +12,7 @@ use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Cart\Price\Struct\CalculatedPrice;
 use Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTax;
 use Shopware\Core\Checkout\Cart\Tax\Struct\CalculatedTaxCollection;
+use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
 use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
@@ -182,55 +183,55 @@ class AddTaxCollector implements CartProcessorInterface
 
             $this->addRateToCart($lineItemsTax, $toCalculate);
 
-            foreach ($products as $product) {
-                $productId = $product->getId();
-                if (!array_key_exists($productId, $lineItemsTax)) {
-                    continue;
+            if (!empty($lineItemsTax)) {
+                $shippingTaxFromServiceProvider = 0;
+                $methodTaxAmount = 0;
+
+                if (!empty($lineItemsTax['shippingTax'])) {
+                    $shippingTaxFromServiceProvider = $lineItemsTax['shippingTax'];
                 }
 
-                $taxAmount = (float) $lineItemsTax[$productId];
-                $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
+                $shippingMethodCalculatedTax = $original->getShippingCosts()->getCalculatedTaxes();
+                foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
+                    $methodTaxAmount += $methodCalculatedTax->getTax();
+                }
 
-                foreach ($calculatedTaxes as $calculatedTax) {
-                    $calculatedTax->setTax($taxAmount);
-
-                    if (isset($lineItemsTax['rate'])) {
-                        $calculatedTax->assign([
-                            'taxRate' => (float) number_format((float) $lineItemsTax['rate'] * 100, 2, '.', ''),
+                foreach ($products as $product) {
+                    $productId = $product->getReferencedId();
+                    if (!empty($lineItemsTax[$productId])) {
+                        $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
+                        $providerRate = isset($lineItemsTax['rate']) ? (float) $lineItemsTax['rate'] * 100 : 0;
+                        $product->getPrice()->assign([
+                            'taxRules' => new TaxRuleCollection([
+                                new TaxRule($providerRate),
+                            ]),
                         ]);
+
+                        foreach ($calculatedTaxes as $calculatedTax) {
+                            $taxAmount = (float) $lineItemsTax[$productId];
+
+                            if ($shippingTaxFromServiceProvider) {
+                                $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
+                                $shippingTaxFromServiceProvider = 0;
+                            }
+
+                            $calculatedTax->setTax($taxAmount);
+
+                            if ($providerRate > 0) {
+                                $calculatedTax->assign([
+                                    'taxRate' => $providerRate,
+                                ]);
+                            }
+                        }
                     }
                 }
-            }
 
-            $hasShippingTax = array_key_exists('shippingTax', $lineItemsTax);
-            if ($hasShippingTax) {
-                $shippingTaxFromServiceProvider = (float) $lineItemsTax['shippingTax'];
-
-                $shippingCosts = $toCalculate->getShippingCosts();
-                $shippingCalculatedTaxes = $shippingCosts->getCalculatedTaxes();
-
-                if (count($shippingCalculatedTaxes) === 0) {
-                    continue;
+                if (!empty($lineItemsTax['shippingTax'])) {
+                    $shippingCalculatedTaxes = $original->getShippingCosts()->getCalculatedTaxes();
+                    foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
+                        $shippingCalculatedTax->setTax((float) 0);
+                    }
                 }
-
-                $lockedShippingTaxes = new CalculatedTaxCollection([
-                    new CalculatedTax($shippingTaxFromServiceProvider, 0.0, $shippingCosts->getTotalPrice()),
-                ]);
-
-                $lockedShippingCosts = new CalculatedPrice(
-                    $shippingCosts->getUnitPrice(),
-                    $shippingCosts->getTotalPrice(),
-                    $lockedShippingTaxes,
-                    new TaxRuleCollection(),
-                    $shippingCosts->getQuantity()
-                );
-
-                $deliveries = $toCalculate->getDeliveries();
-                foreach ($deliveries as $delivery) {
-                    $delivery->setShippingCosts($lockedShippingCosts);
-                }
-
-                $toCalculate->markModified();
             }
         }
 

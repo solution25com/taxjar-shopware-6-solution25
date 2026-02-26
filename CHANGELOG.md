@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.5] - 2026-02-26
+
+### This release includes
+- Added new **TaxJar Customer Configuration** option in plugin settings.
+- Introduced support for **TaxJar-registered customers using Shopware Customer ID**.
+- When the new option is enabled:
+  - The **Shopware customer ID** is always sent as `taxJarCustomerId` in TaxJar tax calculation requests.
+  - The **customerId** is also included in **commit transaction** requests.
+- When the option is disabled:
+  - The system uses the customer’s **custom fields** (customer ID, exemption type, exemption state).
+  - If custom fields are empty, no customer ID is sent to TaxJar.
+- Improves flexibility for merchants who manage customers directly inside TaxJar.
+  
+---
+
+## [v1.2.4] - 2026-02-05
+
+### This release includes
+- fix tax on return
+
+---
+
 ## [v1.2.3] - 2026-02-04
 
 ### This release includes

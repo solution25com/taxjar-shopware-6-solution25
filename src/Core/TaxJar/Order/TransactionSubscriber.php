@@ -940,8 +940,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
-    $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
-    $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
+    $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
+    if($getTaxJarCustomerConfigs){
+      $taxjarCustomerId = $order->getOrderCustomer()->getId();
+    }
+    else{
+      $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
+      $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
+    }
 
     $customerGroupId = $order->getOrderCustomer()->getCustomer()->getGroupId() ?? null;
 
@@ -1094,6 +1100,10 @@ class TransactionSubscriber implements EventSubscriberInterface
   private function useIncludeShippingCostForTaxCalculation(): int
   {
     return (int)$this->systemConfigService->get('solu1TaxJar.setting.includeShippingCost', $this->salesChannelId);
+  }
+  private function _taxjarCustomers(): bool
+  {
+    return (bool)$this->systemConfigService->get('solu1TaxJar.setting.taxjarCustomers', $this->salesChannelId);
   }
 
   protected function hasTaxJarProvider(OrderEntity $order): bool

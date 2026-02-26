@@ -123,8 +123,14 @@ class Calculator implements TaxCalculatorInterface
             $lineItems = $this->processLinceItems($lineItems, $context, $cart);
             $priceAfterProcessLineItems = $this->cartTotal;
 
-            $customFields = $context->getCustomer()->getCustomFields() ?? [];
-            $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
+            $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
+            if($getTaxJarCustomerConfigs == true){
+              $taxjarCustomerId = $context->getCustomer()->getId();
+            }
+            else{
+              $customFields = $context->getCustomer()->getCustomFields() ?? [];
+              $taxjarCustomerId = $customFields['taxjar_customer_id'] ?? null;
+            }
 
             $cartInfo = [
               'to_country' => $shippingAddress->getCountry()->getIso(),
@@ -142,11 +148,14 @@ class Calculator implements TaxCalculatorInterface
               'customer_id' => $taxjarCustomerId,
               ];
 
+            $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
 
-            if ($taxjarCustomerId !== null) {
+            if(!$getTaxJarCustomerConfigs){
+              if ($taxjarCustomerId !== null) {
                 $cartInfo['exemption_type'] = $customFields['taxjar_exemption_type'] ?? null;
-            } elseif (in_array($customerGroup, $customerGroupToExempt, true)) {
+              } elseif (in_array($customerGroup, $customerGroupToExempt, true)) {
                 $cartInfo['exemption_type'] = 'other';
+              }
             }
 
             $request = array_merge($shippingFromAddress, $cartInfo);
@@ -410,6 +419,11 @@ class Calculator implements TaxCalculatorInterface
     private function _isSandboxMode(): int
     {
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.sandboxMode', $this->salesChannelId);
+    }
+
+    private function _taxjarCustomers(): bool
+    {
+      return (bool)$this->systemConfigService->get('solu1TaxJar.setting.taxjarCustomers', $this->salesChannelId);
     }
 
     private function _getCustomerGroupToExempt(): array|null

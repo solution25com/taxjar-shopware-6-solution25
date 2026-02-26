@@ -321,4 +321,19 @@
             <label>Tax exempt customer group</label>
         </component>
     </card>
+
+    <card>
+        <title>TaxJar Customer Configuration</title>
+        <input-field type="checkbox">
+            <name>taxjarCustomers</name>
+            <label>Customers Registered in TaxJar (Using Shopware Customer ID)</label>
+            <helpText>
+                Enable this option if all your customers are already registered in TaxJar using their Shopware Customer ID.
+                When enabled, the Shopware customer ID will be sent as the customerId in TaxJar requests.
+                When disabled, the system will instead use the customer’s custom fields (customer ID, exemption type, and exemption state).
+                If these custom fields are empty, no customer Id will be sent to TaxJar for that customer.
+            </helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
+    </card>
 </config>

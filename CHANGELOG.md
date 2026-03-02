@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.6] - 2026-03-02
+
+### This release includes
+- change customerId with customer number
+
+---
+
 ## [v1.2.5] - 2026-02-26
 
 ### This release includes

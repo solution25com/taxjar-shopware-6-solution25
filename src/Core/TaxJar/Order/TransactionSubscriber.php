@@ -942,7 +942,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
     $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
     if($getTaxJarCustomerConfigs){
-      $taxjarCustomerId = $order->getOrderCustomer()->getId();
+      $taxjarCustomerId = $order->getOrderCustomer()->getCustomerNumber();
     }
     else{
       $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;

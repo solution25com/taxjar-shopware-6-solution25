@@ -125,7 +125,7 @@ class Calculator implements TaxCalculatorInterface
 
             $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
             if($getTaxJarCustomerConfigs == true){
-              $taxjarCustomerId = $context->getCustomer()->getId();
+              $taxjarCustomerId = $context->getCustomer()->getCustomerNumber();
             }
             else{
               $customFields = $context->getCustomer()->getCustomFields() ?? [];

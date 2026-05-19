@@ -1,0 +1,14 @@
+{% sw_extends '@Storefront/storefront/page/checkout/summary/summary-tax.html.twig' %}
+
+{% block page_checkout_summary_tax %}
+    {% set taxjarActive = false %}
+    {% for lineItem in page.cart.lineItems %}
+        {% if lineItem.payload.taxJarRate ?? 0 > 0 %}
+            {% set taxjarActive = true %}
+        {% endif %}
+    {% endfor %}
+
+    {% if not (taxjarActive and taxItem.tax == 0 and taxItem.taxRate == 0 and taxItem.price == 0) %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}

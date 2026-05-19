@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.7] - 2026-05-19
+
+### This release includes
+- removed additional “plus 0% VAT” line from checkout when using TaxJar
+- ensured only TaxJar-calculated tax rates are displayed during checkout
+
+---
+
 ## [v1.2.6] - 2026-03-02
 
 ### This release includes

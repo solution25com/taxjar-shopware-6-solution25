@@ -9,4 +9,3 @@ import './module/sw-nexus/index';
 import NexusApiService from './module/sw-nexus/page/sw-nexus-page/services/NexusApiService'
 import './module/sw-nexus/scss/sv-nexus-page.scss'
 
-Shopware.Service('nexusApiService').register('nexusApiService', NexusApiService);

@@ -1,4 +1,11 @@
-.sw-select .sw-select__selection-indicators{width: 0px;}
-.sw-select.has--focus .sw-select__select-indicator-clear, .sw-select:hover .sw-select__select-indicator-clear{
-    margin-left: 8px;
+.sw-settings-tax-detail__tax-rule-grid {
+    width: 100%;
+}
+
+.sw-settings-tax-detail__tax-rule-grid .sw-entity-single-select {
+    width: 100%;
+}
+
+.sw-settings-tax-detail__tax-rule-grid .sw-select__selection {
+    padding-right: 40px;
 }

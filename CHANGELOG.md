@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.2.8] - 2026-06-08
+
+### This release includes
+- fixed an error that occurred when refreshing the administration page
+- corrected the layout of the select form on the "Add new tax" page
+- fixed an issue where a newly created tax would not be set as the default on the first save
+- fixed an issue where a previously set tax service provider could not be removed
+
 ## [v1.2.7] - 2026-05-19
 
 ### This release includes

@@ -966,7 +966,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $shippingFromAddress,
       [
         'transaction_id' => $transactionId,
-        'transaction_date' => $order->getOrderDate()->format('Y/m/d'),
+        'transaction_date' => (new \DateTime())->format('Y/m/d'),
         'customer_id' => $taxjarCustomerId,
         'to_country' => $countryIso,
         'to_zip' => $destinationAddress?->getZipcode(),

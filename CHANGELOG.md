@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.0] - 2026-08-24
+
+### This release includes
+- Added configurable TaxJar calculation cache TTL with an 8-hour default
+- Added Clear TaxJar Cache functionality in plugin settings
+- Added support for global and customer-specific TaxJar cache clearing
+- Improved TaxJar cache reliability across sales channels and TaxJar configurations
+- Improved TTL handling for default, disabled, and invalid values
+- Improved Address Mismatch handling to reduce repeated TaxJar API calls for unchanged invalid addresses
+- Improved fallback handling for TaxJar Address Mismatch responses
+- Improved TaxJar diagnostics while excluding sensitive data
+- Fixed stale TaxJar calculation results remaining active without plugin-controlled expiration
+- Fixed cached TaxJar results being reused in the wrong sales channel or TaxJar configuration context
+- Fixed TTL reset behavior where clearing a saved 0 value could keep the cache disabled unintentionally
+
+
 ## [v1.2.8] - 2026-06-08
 
 ### This release includes

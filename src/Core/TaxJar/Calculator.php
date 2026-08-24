@@ -17,10 +17,13 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
+use Symfony\Component\Cache\Adapter\TagAwareAdapterInterface;
 
 class Calculator implements TaxCalculatorInterface
 {
     private const CACHE_ID = 's25_tax_jar_response_';
+
+    private const DEFAULT_TAX_CALCULATION_CACHE_TTL = 28800;
 
     public const REQUEST_TYPE = 'Tax Calculation';
 
@@ -159,9 +162,15 @@ class Calculator implements TaxCalculatorInterface
             }
 
             $request = array_merge($shippingFromAddress, $cartInfo);
-            $storedResponse = $this->getResponseFromCache(serialize($request));
+            $cacheId = $this->getTaxCalculationCacheId($request);
+
+            $storedResponse = $this->getResponseFromCache($cacheId);
 
             if (!empty($storedResponse)) {
+                if (!empty($storedResponse['taxjar_address_mismatch'])) {
+                    return ['taxjar_address_mismatch' => true];
+                }
+
                 $taxInformation = $storedResponse;
             } else {
                 $taxInformation = $this->_getTaxRateWithHttpRequest($context, $request);
@@ -178,11 +187,22 @@ class Calculator implements TaxCalculatorInterface
 
                     if (isset($fallbackTaxInformation['breakdown']['line_items'])) {
                         $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_success');
+                        $this->setResponseIntoCache(
+                            ['tax' => $fallbackTaxInformation],
+                            $cacheId,
+                            $context->getCustomer()?->getId()
+                        );
                         $taxInformation = $fallbackTaxInformation;
                     } else {
                         if ($this->isZipStateMismatchError($fallbackTaxInformation) || isset($fallbackTaxInformation['error'])) {
                             $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_failed');
                         }
+
+                        $this->setResponseIntoCache(
+                            ['tax' => ['taxjar_address_mismatch' => true]],
+                            $cacheId,
+                            $context->getCustomer()?->getId()
+                        );
                     }
                 }
             }
@@ -403,7 +423,12 @@ class Calculator implements TaxCalculatorInterface
                 $this->logRequestResponse($logInfo, $context);
             }
             $response = json_decode($response, true);
-            $this->setResponseIntoCache($response, serialize($orderDetail));
+            $cacheId = $this->getTaxCalculationCacheId($orderDetail);
+            $this->setResponseIntoCache(
+                $response,
+                $cacheId,
+                $context->getCustomer()?->getId()
+            );
             if (isset($response['tax'])) {
                 return $response['tax'];
             }
@@ -512,16 +537,67 @@ class Calculator implements TaxCalculatorInterface
         return (int)$this->systemConfigService->get('solu1TaxJar.setting.debug', $this->salesChannelId);
     }
 
+    private function getTaxCalculationCacheTtl(): int
+    {
+        $ttl = $this->systemConfigService->get('solu1TaxJar.setting.taxCalculationCacheTtl', $this->salesChannelId);
+
+        if ($ttl === null || $ttl === '') {
+            return self::DEFAULT_TAX_CALCULATION_CACHE_TTL;
+        }
+
+        if (is_string($ttl)) {
+            $ttl = trim($ttl);
+
+            if ($ttl === '' || preg_match('/^-?\d+$/D', $ttl) !== 1) {
+                return self::DEFAULT_TAX_CALCULATION_CACHE_TTL;
+            }
+        } elseif (!is_int($ttl)) {
+            return self::DEFAULT_TAX_CALCULATION_CACHE_TTL;
+        }
+
+        $ttl = (int) $ttl;
+
+        if ($ttl < 0) {
+            return self::DEFAULT_TAX_CALCULATION_CACHE_TTL;
+        }
+
+        return $ttl;
+    }
+
+    private function getTaxCalculationCacheId(array $request): string
+    {
+        return serialize([
+            'salesChannelId' => (string)$this->salesChannelId,
+            'apiEndpoint' => $this->_getApiEndPoint(),
+            'apiTokenFingerprint' => hash('sha256', (string)$this->_taxJarApiToken()),
+            'request' => serialize($request),
+        ]);
+    }
+
     /**
      * @param $response
      * @param string $cacheId
+     * @param string|null $customerId
      * @return void
      * @throws InvalidArgumentException
      */
-    private function setResponseIntoCache($response, string $cacheId): void
+    private function setResponseIntoCache(
+        $response,
+        string $cacheId,
+        ?string $customerId = null
+    ): void
     {
+        $ttl = $this->getTaxCalculationCacheTtl();
+
+        if ($ttl === 0) {
+            return;
+        }
+
         $item = $this->cache->getItem(self::CACHE_ID . hash('sha256', $cacheId));
         $item->set(\serialize($response));
+        $item->expiresAfter($ttl);
+        $this->tagTaxCalculationCacheItem($item, $customerId);
+
         $this->cache->save($item);
     }
 
@@ -533,6 +609,12 @@ class Calculator implements TaxCalculatorInterface
      */
     private function getResponseFromCache(string $cacheId): mixed
     {
+        $ttl = $this->getTaxCalculationCacheTtl();
+
+        if ($ttl === 0) {
+            return [];
+        }
+
         $response = $this->cache->getItem(self::CACHE_ID . hash('sha256', $cacheId))->get();
         if ($response === null) {
             return [];
@@ -543,7 +625,36 @@ class Calculator implements TaxCalculatorInterface
                 return $response['tax'];
             }
         }
+
         return [];
+    }
+
+    private function getTaxCalculationCacheTags(?string $customerId = null): array
+    {
+        $tags = ['taxjar'];
+
+        if ($customerId !== null && $customerId !== '') {
+            $tags[] = 'taxjar_customer_' . $customerId;
+        }
+
+        return $tags;
+    }
+
+    private function tagTaxCalculationCacheItem(object $item, ?string $customerId = null): int
+    {
+        if (!$this->cache instanceof TagAwareAdapterInterface || !method_exists($item, 'tag')) {
+            return 0;
+        }
+
+        try {
+            $tags = $this->getTaxCalculationCacheTags($customerId);
+            $item->tag($tags);
+
+            return count($tags);
+        } catch (\Throwable $e) {
+        }
+
+        return 0;
     }
 
     private function addRate(mixed $taxInformation, array $processedResponse): array
@@ -566,13 +677,19 @@ class Calculator implements TaxCalculatorInterface
         $message = (string)($taxInformation['error']['message'] ?? '');
         $combined = strtolower($detail . ' ' . $message);
 
-        return str_contains($combined, 'zip')
-            && (str_contains($combined, 'state')
-                || str_contains($combined, 'postal code'))
-            && (str_contains($combined, 'mismatch')
-                || str_contains($combined, 'does not match')
-                || str_contains($combined, "isn't a valid")
-                || str_contains($combined, 'invalid'));
+        return str_contains($combined, 'no to zip')
+            || str_contains($combined, 'no to_zip')
+            || ((str_contains($combined, 'zip')
+                    || (str_contains($combined, 'postal code')
+                        && str_contains($combined, 'state')))
+                && (str_contains($combined, 'state')
+                    || str_contains($combined, 'postal code'))
+                && (str_contains($combined, 'mismatch')
+                    || str_contains($combined, 'does not match')
+                    || str_contains($combined, 'do not match')
+                    || str_contains($combined, 'not used within')
+                    || str_contains($combined, "isn't a valid")
+                    || str_contains($combined, 'invalid')));
     }
 
     private function logAddressMismatch(
@@ -582,6 +699,10 @@ class Calculator implements TaxCalculatorInterface
         string $stage
     ): void {
         try {
+            if ($this->isDebugModeOn() !== 1) {
+                return;
+            }
+
             $customer = $context->getCustomer();
 
             $dataToLog = [

@@ -26,6 +26,7 @@ use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Service\ClientApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Psr\Log\LoggerInterface;
 
 class TransactionSubscriber implements EventSubscriberInterface
 {
@@ -97,6 +98,7 @@ class TransactionSubscriber implements EventSubscriberInterface
    */
   private ClientApiService $clientApiService;
   private ?EntityRepository $orderReturnRepository;
+  private LoggerInterface $logger;
 
 
     /**
@@ -117,6 +119,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     EntityRepository    $stateRepository,
     ClientApiService    $clientApiService,
     ?EntityRepository $orderReturnRepository,
+    LoggerInterface $logger,
   )
   {
     $this->systemConfigService = $systemConfigService;
@@ -127,6 +130,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $this->stateRepository = $stateRepository;
     $this->clientApiService = $clientApiService;
     $this->orderReturnRepository = $orderReturnRepository;
+    $this->logger = $logger;
   }
 
   public static function getSubscribedEvents(): array
@@ -182,26 +186,89 @@ class TransactionSubscriber implements EventSubscriberInterface
   public function onOrderShipped(OrderStateMachineStateChangeEvent $event): void
   {
     $this->context = $event->getContext();
-    if (!$this->dispatched) {
-      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
-      if($selectedFlow == 'ship'){
-        $this->createOrderTransaction($event->getOrderId(), $event);
-      }
-      $this->dispatched = true;
+    $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $event->getSalesChannelId());
+
+    $this->logOrderTransactionDiagnostic('state_event_entered', [
+      'shopwareEventName' => $event->getName(),
+      'orderId' => $event->getOrderId(),
+      'salesChannelId' => $event->getSalesChannelId(),
+      'selectedCommitFlow' => $selectedFlow,
+    ]);
+
+    if ($this->dispatched) {
+      $this->logOrderTransactionDiagnostic('state_event_skipped', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+        'earlyReturnReason' => 'already_dispatched',
+      ]);
+      return;
     }
+
+    if($selectedFlow == 'ship'){
+      $this->logOrderTransactionDiagnostic('create_order_transaction_about_to_be_called', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+      ]);
+      $this->createOrderTransaction($event->getOrderId(), $event);
+    } else {
+      $this->logOrderTransactionDiagnostic('state_event_skipped', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+        'earlyReturnReason' => 'selected_commit_flow_mismatch',
+      ]);
+    }
+
+    $this->dispatched = true;
   }
 
   public function onOrderStatePaid(OrderStateMachineStateChangeEvent $event): void
   {
-      $this->context = $event->getContext();
-      if (!$this->dispatched) {
-      $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
-      if($selectedFlow == 'paid'){
-        $this->createOrderTransaction($event->getOrderId(), $event);
-      }
-      $this->dispatched = true;
+    $this->context = $event->getContext();
+    $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $event->getSalesChannelId());
+
+    $this->logOrderTransactionDiagnostic('state_event_entered', [
+      'shopwareEventName' => $event->getName(),
+      'orderId' => $event->getOrderId(),
+      'salesChannelId' => $event->getSalesChannelId(),
+      'selectedCommitFlow' => $selectedFlow,
+    ]);
+
+    if ($this->dispatched) {
+      $this->logOrderTransactionDiagnostic('state_event_skipped', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+        'earlyReturnReason' => 'already_dispatched',
+      ]);
+      return;
     }
 
+    if($selectedFlow == 'paid'){
+      $this->logOrderTransactionDiagnostic('create_order_transaction_about_to_be_called', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+      ]);
+      $this->createOrderTransaction($event->getOrderId(), $event);
+    } else {
+      $this->logOrderTransactionDiagnostic('state_event_skipped', [
+        'shopwareEventName' => $event->getName(),
+        'orderId' => $event->getOrderId(),
+        'salesChannelId' => $event->getSalesChannelId(),
+        'selectedCommitFlow' => $selectedFlow,
+        'earlyReturnReason' => 'selected_commit_flow_mismatch',
+      ]);
+    }
+
+    $this->dispatched = true;
   }
 
   /**
@@ -682,13 +749,34 @@ class TransactionSubscriber implements EventSubscriberInterface
      */
   protected function createOrderTransaction(string $orderId, OrderStateMachineStateChangeEvent $event): void
   {
+    $diagnosticContext = [
+      'shopwareEventName' => $event->getName(),
+      'orderId' => $orderId,
+      'salesChannelId' => $event->getSalesChannelId(),
+      'apiCallReached' => false,
+    ];
+
+    $this->logOrderTransactionDiagnostic('create_order_transaction_entered', $diagnosticContext);
+
     try {
       $order = $this->getOrder($orderId);
       if (!$order) {
+        $this->logOrderTransactionDiagnostic('create_order_transaction_skipped', array_merge($diagnosticContext, [
+          'earlyReturnReason' => 'order_not_found',
+        ]));
         return;
       }
 
+      $diagnosticContext = array_merge($diagnosticContext, [
+        'orderNumber' => $order->getOrderNumber(),
+        'salesChannelId' => $order->getSalesChannelId(),
+        'selectedCommitFlow' => $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $order->getSalesChannelId()),
+      ]);
+
       if (!$this->hasTaxJarProvider($order)) {
+        $this->logOrderTransactionDiagnostic('create_order_transaction_skipped', array_merge($diagnosticContext, [
+          'earlyReturnReason' => 'taxjar_provider_not_marked',
+        ]));
         return;
       }
 
@@ -697,11 +785,21 @@ class TransactionSubscriber implements EventSubscriberInterface
       $this->salesChannelId = $order->getSalesChannelId();
       $orderDetail = $this->getOrderDetail($order);
 
-      if ($this->isDuplicateRequest(serialize($orderDetail))) {
+      $duplicateRequest = $this->isDuplicateRequest(serialize($orderDetail));
+      if ($duplicateRequest) {
+        $this->logOrderTransactionDiagnostic('create_order_transaction_skipped', array_merge($diagnosticContext, [
+          'earlyReturnReason' => 'duplicate_request',
+          'duplicateRequest' => true,
+        ]));
         return;
       }
 
       $logInfo = $this->getLogInfo($order, $orderDetail, $requestType);
+
+      $this->logOrderTransactionDiagnostic('taxjar_create_order_api_call_reached', array_merge($diagnosticContext, [
+        'duplicateRequest' => false,
+        'apiCallReached' => true,
+      ]));
 
       $response = $this->clientApiService->sendRequest(
         'POST',
@@ -710,12 +808,48 @@ class TransactionSubscriber implements EventSubscriberInterface
         $orderDetail
       );
 
+      $this->logOrderTransactionDiagnostic('taxjar_create_order_api_response', array_merge($diagnosticContext, [
+        'duplicateRequest' => false,
+        'apiCallReached' => true,
+        'success' => $response['success'] ?? false,
+      ]));
+
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
 
     } catch (\Exception $e) {
+      $this->logOrderTransactionDiagnostic('create_order_transaction_exception', array_merge($diagnosticContext, [
+        'success' => false,
+        'exceptionClass' => get_class($e),
+        'earlyReturnReason' => 'exception_caught',
+      ]));
       return;
     }
+  }
+
+  private function logOrderTransactionDiagnostic(string $eventName, array $context = []): void
+  {
+    $allowedKeys = [
+      'shopwareEventName',
+      'orderId',
+      'orderNumber',
+      'salesChannelId',
+      'selectedCommitFlow',
+      'earlyReturnReason',
+      'duplicateRequest',
+      'apiCallReached',
+      'success',
+      'exceptionClass',
+    ];
+
+    $safeContext = ['diagnosticEventName' => $eventName];
+    foreach ($allowedKeys as $key) {
+      if (array_key_exists($key, $context)) {
+        $safeContext[$key] = $context[$key];
+      }
+    }
+
+    $this->logger->info('TaxJar order transaction diagnostic', $safeContext);
   }
 
   /**

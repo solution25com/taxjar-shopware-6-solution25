@@ -13,6 +13,7 @@ Component.register('sw-settings-taxjar', {
         return {
             isLoading: false,
             isSaveSuccessful: false,
+            isClearingTaxJarCache: false,
         };
     },
 
@@ -97,6 +98,36 @@ Component.register('sw-settings-taxjar', {
                     this.createNotificationError({
                     message: error+'.Please review logs for more detail!'
                     });
+                });
+        },
+        clearTaxJarCache() {
+            let apiBasePath = Shopware.Context.api.basePath;
+            let url = `${apiBasePath}/api/_action/tax-jar/cache/clear`;
+
+            this.isClearingTaxJarCache = true;
+
+            fetch(url, {
+                method: 'POST',
+                headers: this.basicHeaders(),
+                redirect: 'follow'
+            }).then((response) => response.json())
+                .then((result) => {
+                    if (result.success) {
+                        this.createNotificationSuccess({
+                            message: 'TaxJar calculation cache cleared successfully.'
+                        });
+                        return;
+                    }
+
+                    this.createNotificationError({
+                        message: result.error || 'TaxJar calculation cache could not be cleared.'
+                    });
+                }).catch((error) => {
+                    this.createNotificationError({
+                        message: error + '. Please review logs for more detail!'
+                    });
+                }).finally(() => {
+                    this.isClearingTaxJarCache = false;
                 });
         },
         validateInput() {

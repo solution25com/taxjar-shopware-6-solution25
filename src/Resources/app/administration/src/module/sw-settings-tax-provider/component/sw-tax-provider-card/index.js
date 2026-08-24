@@ -40,16 +40,6 @@ Component.register('sw-tax-provider-card', {
 
     methods: {
         changeTaxProvider(id) {
-            if (!id) {
-                if(this.tax.extensions.taxExtension){
-                    this.taxMappingRepository.delete(this.tax.extensions.taxExtension.id, Context.api).then(() => {
-                        this.tax.extensions.taxExtension = null;
-                        this.taxProvider.id = null;
-                    });
-                }
-
-                return;
-            }
             this.taxProviderRepository.get(id, Context.api).then((item) => {
                 this.currentTaxProvider = item;
                 if (this.currentTaxProvider) {

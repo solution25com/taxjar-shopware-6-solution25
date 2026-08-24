@@ -60,6 +60,19 @@
                 {% endblock %}
 
                 <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+                {% block sw_settings_clear_tax_jar_cache %}
+                    <sw-button
+                            class="sw-settings-tax-cache-clear-action"
+                            variant="primary"
+                            :is-loading="isClearingTaxJarCache"
+                            :disabled="isLoading || systemConfigLoading || isClearingTaxJarCache"
+                            @click="clearTaxJarCache"
+                    >
+                        Clear TaxJar Cache
+                    </sw-button>
+                {% endblock %}
+
+                <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                 {% block sw_settings_test_tax_jar_connection %}
                     <sw-button
                             class="sw-settings-tax-connection__test-action"

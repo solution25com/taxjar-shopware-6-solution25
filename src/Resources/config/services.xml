@@ -3,6 +3,21 @@
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
     <services>
+        <service id="solu1_taxjar.cache.tax_calculation.items" class="Symfony\Component\Cache\Adapter\FilesystemAdapter">
+            <argument>solu1_taxjar_tax_calculation</argument>
+            <argument>0</argument>
+            <argument>%kernel.cache_dir%/pools/solu1_taxjar_tax_calculation</argument>
+        </service>
+        <service id="solu1_taxjar.cache.tax_calculation.tags" class="Symfony\Component\Cache\Adapter\FilesystemAdapter">
+            <argument>solu1_taxjar_tax_calculation_tags</argument>
+            <argument>0</argument>
+            <argument>%kernel.cache_dir%/pools/solu1_taxjar_tax_calculation_tags</argument>
+        </service>
+        <service id="solu1_taxjar.cache.tax_calculation" class="Symfony\Component\Cache\Adapter\TagAwareAdapter">
+            <argument type="service" id="solu1_taxjar.cache.tax_calculation.items"/>
+            <argument type="service" id="solu1_taxjar.cache.tax_calculation.tags"/>
+        </service>
+
         <service id="solu1TaxJar\Core\Content\TaxProvider\TaxProviderDefinition">
             <tag name="shopware.entity.definition" entity="s25_tax_service_provider"/>
         </service>
@@ -29,7 +44,7 @@
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <argument type="service" id="s25_taxjar_log.repository" />
             <argument type="service" id="product.repository" />
-            <argument type="service" id="cache.object"/>
+            <argument type="service" id="solu1_taxjar.cache.tax_calculation"/>
             <tag name="solu1.tax_calculator"/>
         </service>
 
@@ -44,6 +59,9 @@
         </service>
         <service id="solu1TaxJar\Storefront\Controller\ExportLogController" public="true">
             <argument type="service" id="s25_taxjar_log.repository" />
+        </service>
+        <service id="solu1TaxJar\Storefront\Controller\TaxJarCacheController" public="true">
+            <argument type="service" id="solu1_taxjar.cache.tax_calculation" />
         </service>
 
         <service id="solu1TaxJar\Subscriber\CustomerSubscriber">
@@ -64,6 +82,7 @@
             <argument type="service" id="country_state.repository" />
             <argument type="service" id="solu1TaxJar\Service\ClientApiService"/>
             <argument type="service" id="order_return.repository" on-invalid="null"/>
+            <argument type="service" id="logger"/>
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />

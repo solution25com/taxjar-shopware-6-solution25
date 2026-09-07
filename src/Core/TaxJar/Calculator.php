@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace solu1TaxJar\Core\TaxJar;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Request as GRequest;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Cache\InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Cart\Cart;
 use Shopware\Core\Content\Product\ProductEntity;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
@@ -24,6 +26,10 @@ class Calculator implements TaxCalculatorInterface
     private const CACHE_ID = 's25_tax_jar_response_';
 
     private const DEFAULT_TAX_CALCULATION_CACHE_TTL = 28800;
+
+    private const API_CONNECT_TIMEOUT = 5;
+
+    private const API_REQUEST_TIMEOUT = 10;
 
     public const REQUEST_TYPE = 'Tax Calculation';
 
@@ -67,6 +73,8 @@ class Calculator implements TaxCalculatorInterface
      */
     private $cartTotal = 0;
 
+    private LoggerInterface $logger;
+
     /**
      * @param SystemConfigService $systemConfigService
      * @param EntityRepository $taxJarLogRepository
@@ -77,13 +85,15 @@ class Calculator implements TaxCalculatorInterface
         SystemConfigService    $systemConfigService,
         EntityRepository       $taxJarLogRepository,
         EntityRepository       $productRepository,
-        CacheItemPoolInterface $cache
+        CacheItemPoolInterface $cache,
+        LoggerInterface        $logger
     ) {
-        $this->restClient = new Client();
+        $this->restClient = new Client(['connect_timeout' => self::API_CONNECT_TIMEOUT, 'timeout' => self::API_REQUEST_TIMEOUT]);
         $this->systemConfigService = $systemConfigService;
         $this->taxJarLogRepository = $taxJarLogRepository;
         $this->productRepository = $productRepository;
         $this->cache = $cache;
+        $this->logger = $logger;
     }
 
     public function supports(string $baseClass): bool
@@ -218,10 +228,12 @@ class Calculator implements TaxCalculatorInterface
                     }
                 }
                 if ($this->useIncludeShippingCostForTaxCalculation()) {
-                    if (isset($taxInformation['breakdown']['shipping']) &&
-                        ($shippingTax = $taxInformation['breakdown']['shipping'])) {
-                        $processedResponse['shippingTax'] = $shippingTax['tax_collectable'] ?? 0;
-                    }
+                    $shippingBreakdown = $taxInformation['breakdown']['shipping'] ?? null;
+                    $shippingTaxable = is_array($shippingBreakdown) && array_key_exists('tax_collectable', $shippingBreakdown);
+                    $processedResponse['shippingTax'] = $shippingTaxable ? (float) $shippingBreakdown['tax_collectable'] : 0.0;
+                    $processedResponse['shippingTaxRate'] = $shippingTaxable
+                        ? (float) ($shippingBreakdown['combined_tax_rate'] ?? 0) * 100
+                        : 0.0;
                 }
                 return $processedResponse;
             }
@@ -407,14 +419,24 @@ class Calculator implements TaxCalculatorInterface
         }
         try {
             $response = $this->restClient->send($request);
-        } catch (\GuzzleHttp\Exception\ClientException $e) {
-            $response = $e->getResponse();
-            $responseBodyAsString = $response->getBody()->getContents();
+        } catch (\Throwable $e) {
+            $hasResponse = $e instanceof BadResponseException;
+            $responseBodyAsString = $hasResponse ? $e->getResponse()->getBody()->getContents() : (string) json_encode(['error' => $e->getMessage()]);
+
+            $this->logger->error('TaxJar tax calculation failed', [
+                'salesChannelId' => $this->salesChannelId,
+                'httpStatus' => $hasResponse ? $e->getResponse()->getStatusCode() : null,
+                'exceptionClass' => \get_class($e),
+                'exceptionMessage' => $e->getMessage(),
+                'responseBody' => substr($responseBodyAsString, 0, 2000),
+            ]);
+
             if ($debugMode) {
                 $logInfo['response'] = $responseBodyAsString;
                 $this->logRequestResponse($logInfo, $context);
             }
-            return ['error' => json_decode($responseBodyAsString, true)];
+
+            return ['error' => $hasResponse ? json_decode($responseBodyAsString, true) : ['message' => $e->getMessage()]];
         }
         try {
             $response = $response->getBody()->getContents();
@@ -432,7 +454,8 @@ class Calculator implements TaxCalculatorInterface
             if (isset($response['tax'])) {
                 return $response['tax'];
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            $this->logger->error('TaxJar tax calculation response could not be processed', ['exceptionMessage' => $e->getMessage()]);
             $response['error'] = $e->getMessage();
         }
         return $response;

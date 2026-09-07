@@ -2,9 +2,8 @@
 
 namespace solu1TaxJar\Core\TaxJar\Order;
 
-use Exception;
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\Request;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
@@ -48,10 +47,16 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   public const PREFIX = 'SW';
 
+  private const API_CONNECT_TIMEOUT = 5;
+
+  private const API_REQUEST_TIMEOUT = 15;
+
   /**
    * @var bool
    */
   protected $dispatched = false;
+
+  protected array $dispatchedOrderIds = [];
 
   /**
    * @var mixed
@@ -195,7 +200,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       'selectedCommitFlow' => $selectedFlow,
     ]);
 
-    if ($this->dispatched) {
+    if (isset($this->dispatchedOrderIds[$event->getOrderId()])) {
       $this->logOrderTransactionDiagnostic('state_event_skipped', [
         'shopwareEventName' => $event->getName(),
         'orderId' => $event->getOrderId(),
@@ -224,7 +229,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       ]);
     }
 
-    $this->dispatched = true;
+    $this->dispatchedOrderIds[$event->getOrderId()] = true;
   }
 
   public function onOrderStatePaid(OrderStateMachineStateChangeEvent $event): void
@@ -239,7 +244,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       'selectedCommitFlow' => $selectedFlow,
     ]);
 
-    if ($this->dispatched) {
+    if (isset($this->dispatchedOrderIds[$event->getOrderId()])) {
       $this->logOrderTransactionDiagnostic('state_event_skipped', [
         'shopwareEventName' => $event->getName(),
         'orderId' => $event->getOrderId(),
@@ -268,7 +273,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       ]);
     }
 
-    $this->dispatched = true;
+    $this->dispatchedOrderIds[$event->getOrderId()] = true;
   }
 
   /**
@@ -287,24 +292,32 @@ class TransactionSubscriber implements EventSubscriberInterface
         }
 
         foreach ($event->getIds() as $orderId) {
-          $existTransactionId = $this->getExistTransactionId($orderId);
-          $logInfo = $this->getDeleteLogInfo($orderId);
-          $orderId = $existTransactionId ?: $orderId;
+          $transactionId = $this->getExistTransactionId($orderId);
 
-          $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $orderId;
+          if (!$transactionId) {
+            $this->logOrderTransactionDiagnostic('taxjar_operation_failed', [
+              'operation' => self::ORDER_DELETE_REQUEST_TYPE,
+              'shopwareEventName' => $event->getName(),
+              'orderId' => $orderId,
+              'success' => false,
+              'earlyReturnReason' => 'transaction_id_unresolvable',
+            ], 'error');
 
-          $response = $this->clientApiService->sendRequest(
-            'DELETE',
-            $endpointUrl,
-            $this->getHeaders(),
-            ['orderId' => $orderId]
-          );
+            continue;
+          }
+
+          $logInfo = $this->getDeleteLogInfo($transactionId);
+
+          $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $transactionId;
+
+          $response = $this->callTaxJar(self::ORDER_DELETE_REQUEST_TYPE, 'DELETE', $endpointUrl, ['orderId' => $transactionId], ['orderId' => $orderId]);
 
           $logInfo['response'] = $response['body'];
           $this->logRequestResponse($logInfo);
         }
 
-      } catch (\Exception $e) {
+      } catch (\Throwable $e) {
+        $this->logTaxJarException(self::ORDER_DELETE_REQUEST_TYPE, $e, ['orderId' => implode(',', $event->getIds())]);
         return;
       }
 
@@ -332,22 +345,17 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      $existTransactionId = $this->getExistTransactionId($orderId);
+      $orderId = $this->getExistTransactionId($orderId, $order) ?: $this->getTransactionId($order);
       $logInfo = $this->getDeleteLogInfo($orderId);
-      $orderId = $existTransactionId ?: $orderId;
 
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $orderId;
 
-      $response = $this->clientApiService->sendRequest(
-        'DELETE',
-        $endpointUrl,
-        $this->getHeaders(),
-        ['orderId' => $orderId]
-      );
+      $response = $this->callTaxJar(self::ORDER_CANCEL_REQUEST_TYPE, 'DELETE', $endpointUrl, ['orderId' => $orderId], ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException(self::ORDER_CANCEL_REQUEST_TYPE, $e, ['orderId' => $event->getOrderId()]);
       return;
     }
   }
@@ -398,14 +406,15 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $refundData = $this->calculatePartialRefundTax($order, $orderReturn);
-      
+
       if (empty($refundData)) {
         return;
       }
 
       $this->createPartialRefundTransaction($order, $refundData);
 
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $event->getOrderId()]);
       return;
     }
   }
@@ -434,9 +443,7 @@ class TransactionSubscriber implements EventSubscriberInterface
           continue;
         }
 
-        $product = $this->productRepository
-          ->search(new Criteria([$originalLineItem->getProductId()]), $this->context)
-          ->get($originalLineItem->getProductId());
+        $product = $this->getProductOrFail($originalLineItem->getProductId(), $originalLineItem->getId());
 
         $productTaxCode = null;
         if ($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
@@ -448,7 +455,7 @@ class TransactionSubscriber implements EventSubscriberInterface
             ->search(new Criteria([$product->getParentId()]), $this->context)
             ->get($product->getParentId());
 
-          if ($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+          if ($parentProduct?->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
             $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
           }
         }
@@ -468,7 +475,7 @@ class TransactionSubscriber implements EventSubscriberInterface
           'unit_price' => $unitPrice,
         ];
 
-        if ($productTaxCode && !strtolower($productTaxCode) == 'none') {
+        if (!empty($productTaxCode) && strtolower((string) $productTaxCode) !== 'none') {
           $taxLineItem['product_tax_code'] = $productTaxCode;
         }
 
@@ -525,10 +532,19 @@ class TransactionSubscriber implements EventSubscriberInterface
       $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest);
 
       if (isset($taxResponse['error'])) {
+        $this->logOrderTransactionDiagnostic('taxjar_operation_failed', [
+          'operation' => 'Partial Refund Tax Calculation',
+          'orderId' => $order->getId(),
+          'orderNumber' => $order->getOrderNumber(),
+          'success' => false,
+          'responseBody' => substr((string) json_encode($taxResponse['error']), 0, 2000),
+        ], 'error');
+
         return null;
       }
 
       return [
+        'return_id' => $orderReturn->getId(),
         'tax_response' => $taxResponse,
         'line_items' => $taxLineItems,
         'total_amount' => $totalAmount,
@@ -536,7 +552,8 @@ class TransactionSubscriber implements EventSubscriberInterface
         'total_tax' => $taxResponse['amount_to_collect'] ?? 0
       ];
 
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException('Partial Refund Tax Calculation', $e, ['orderId' => $order->getId()]);
       return null;
     }
   }
@@ -563,12 +580,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     );
 
     try {
-      $client = new Client();
+      $client = new Client(['connect_timeout' => self::API_CONNECT_TIMEOUT, 'timeout' => self::API_REQUEST_TIMEOUT]);
       $response = $client->send($request);
-    } catch (ClientException $e) {
-      $response = $e->getResponse();
-      $responseBodyAsString = $response->getBody()->getContents();
-      return ['error' => json_decode($responseBodyAsString, true)];
+    } catch (\Throwable $e) {
+      $this->logTaxJarException('Partial Refund Tax Calculation', $e, []);
+
+      return ['error' => $e instanceof BadResponseException
+        ? json_decode($e->getResponse()->getBody()->getContents(), true)
+        : ['message' => $e->getMessage()]];
     }
 
     try {
@@ -578,10 +597,11 @@ class TransactionSubscriber implements EventSubscriberInterface
       if (isset($response['tax'])) {
         return $response['tax'];
       }
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException('Partial Refund Tax Calculation', $e, []);
       $response['error'] = $e->getMessage();
     }
-    
+
     return $response;
   }
 
@@ -597,7 +617,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $existTransactionId = $this->getExistTransactionId($order->getId());
       $originalTransactionId = $existTransactionId ?: $this->getTransactionId($order);
       
-      $refundTransactionId = $originalTransactionId . '_partial_refund_' . time();
+      $refundTransactionId = $originalTransactionId . '_partial_refund_' . ($refundData['return_id'] ?? 'unknown');
 
       $shippingOrderAddress = null;
       if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
@@ -668,18 +688,14 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
       
-      $response = $this->clientApiService->sendRequest(
-        'POST',
-        $endpointUrl,
-        $this->getHeaders(),
-        $refundRequest
-      );
+      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, 'POST', $endpointUrl, $refundRequest, ['orderId' => $order->getId(), 'orderNumber' => $order->getOrderNumber()]);
 
       $logInfo = $this->getLogInfo($order, $refundRequest, self::ORDER_REFUND_REQUEST_TYPE);
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
 
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $order->getId()]);
       return;
     }
   }
@@ -715,30 +731,23 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $this->salesChannelId = $order->getSalesChannelId();
 
-      $existTransactionId = $this->getExistTransactionId($orderId);
-      if ($existTransactionId) {
-        $orderId = $existTransactionId;
-      }
+      $orderId = $this->getExistTransactionId($orderId, $order) ?: $this->getTransactionId($order);
 
-      $orderDetail = $this->getOrderDetail($order);
-      $orderDetail['transaction_reference_id'] = $orderDetail['transaction_id'];
+      $orderDetail = $this->toRefundPayload($this->getOrderDetail($order));
+      $orderDetail['transaction_reference_id'] = $this->getTransactionId($order);
       $orderDetail['transaction_id'] = $orderId . '_refund';
 
       $logInfo = $this->getLogInfo($order, $orderDetail, self::ORDER_REFUND_REQUEST_TYPE);
 
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
 
-      $response = $this->clientApiService->sendRequest(
-        'POST',
-        $endpointUrl,
-        $this->getHeaders(),
-        $orderDetail
-      );
+      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, 'POST', $endpointUrl, $orderDetail, ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
 
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $event->getOrderId()]);
       return;
     }
   }
@@ -796,38 +805,81 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $logInfo = $this->getLogInfo($order, $orderDetail, $requestType);
 
-      $this->logOrderTransactionDiagnostic('taxjar_create_order_api_call_reached', array_merge($diagnosticContext, [
-        'duplicateRequest' => false,
-        'apiCallReached' => true,
-      ]));
+      $diagnosticContext['duplicateRequest'] = false;
+      $diagnosticContext['apiCallReached'] = true;
+      $this->logOrderTransactionDiagnostic('taxjar_create_order_api_call_reached', $diagnosticContext);
 
-      $response = $this->clientApiService->sendRequest(
-        'POST',
-        $apiEndpointUrl,
-        $this->getHeaders(),
-        $orderDetail
-      );
+      $response = $this->callTaxJar($requestType, 'POST', $apiEndpointUrl, $orderDetail, $diagnosticContext);
+      $succeeded = ($response['success'] ?? false) === true;
 
       $this->logOrderTransactionDiagnostic('taxjar_create_order_api_response', array_merge($diagnosticContext, [
         'duplicateRequest' => false,
         'apiCallReached' => true,
-        'success' => $response['success'] ?? false,
+        'success' => $succeeded,
       ]));
+
+      if ($succeeded) {
+        $this->persistTransactionId($order, $orderDetail['transaction_id']);
+      } elseif ($this->providerRejectedRequest($response)) {
+        $logInfo['requestKey'] = 'rejected-' . $response['status'] . ':' . $logInfo['requestKey'];
+      }
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
 
-    } catch (\Exception $e) {
-      $this->logOrderTransactionDiagnostic('create_order_transaction_exception', array_merge($diagnosticContext, [
-        'success' => false,
-        'exceptionClass' => get_class($e),
-        'earlyReturnReason' => 'exception_caught',
-      ]));
+    } catch (\Throwable $e) {
+      $this->logTaxJarException($requestType ?? self::ORDER_CREATE_REQUEST_TYPE, $e, $diagnosticContext);
       return;
     }
   }
 
-  private function logOrderTransactionDiagnostic(string $eventName, array $context = []): void
+  private function callTaxJar(string $operation, string $method, string $endpointUrl, array $body, array $context = []): array
+  {
+    $response = $this->clientApiService->sendRequest($method, $endpointUrl, $this->getHeaders(), $body);
+
+    if (($response['success'] ?? false) !== true) {
+      $this->logOrderTransactionDiagnostic('taxjar_operation_failed', $context + [
+        'operation' => $operation,
+        'success' => false,
+        'httpStatus' => $response['status'] ?? null,
+        'exceptionMessage' => $response['error'] ?? null,
+        'responseBody' => substr((string) ($response['body'] ?? ''), 0, 2000),
+      ], 'error');
+    }
+
+    return $response;
+  }
+
+  private function logTaxJarException(string $operation, \Throwable $e, array $context = []): void
+  {
+    $this->logOrderTransactionDiagnostic('taxjar_operation_exception', $context + [
+      'operation' => $operation,
+      'success' => false,
+      'earlyReturnReason' => 'exception_caught',
+      'exceptionClass' => \get_class($e),
+      'exceptionMessage' => $e->getMessage(),
+      'exceptionOrigin' => $e->getFile() . ':' . $e->getLine(),
+    ], 'error');
+  }
+
+  private function providerRejectedRequest(array $response): bool
+  {
+    $status = $response['status'] ?? null;
+
+    return \is_int($status) && $status >= 400 && $status < 500;
+  }
+
+  private function persistTransactionId(OrderEntity $order, string $transactionId): void
+  {
+    $this->orderRepository->update([[
+      'id' => $order->getId(),
+      'customFields' => array_merge($order->getCustomFields() ?? [], [
+        'taxJarTransactionId' => $transactionId,
+      ]),
+    ]], $this->context);
+  }
+
+  private function logOrderTransactionDiagnostic(string $eventName, array $context = [], string $level = 'info'): void
   {
     $allowedKeys = [
       'shopwareEventName',
@@ -840,6 +892,11 @@ class TransactionSubscriber implements EventSubscriberInterface
       'apiCallReached',
       'success',
       'exceptionClass',
+      'exceptionMessage',
+      'exceptionOrigin',
+      'httpStatus',
+      'responseBody',
+      'operation',
     ];
 
     $safeContext = ['diagnosticEventName' => $eventName];
@@ -849,7 +906,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
     }
 
-    $this->logger->info('TaxJar order transaction diagnostic', $safeContext);
+    $this->logger->log($level, 'TaxJar order transaction diagnostic', $safeContext);
   }
 
   /**
@@ -864,7 +921,8 @@ class TransactionSubscriber implements EventSubscriberInterface
         ->search(new Criteria([$countryId]), $this->context)
         ->get($countryId);
       return $country;
-    } catch (\Exception $e) {
+    } catch (\Throwable $e) {
+      $this->logTaxJarException('Country Lookup', $e);
       return false;
     }
   }
@@ -882,7 +940,8 @@ class TransactionSubscriber implements EventSubscriberInterface
                 ->get($stateId);
 
             return $state;
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            $this->logTaxJarException('Country State Lookup', $e);
             return false;
         }
     }
@@ -974,8 +1033,39 @@ class TransactionSubscriber implements EventSubscriberInterface
     return self::PREFIX . $orderId;
   }
 
-  private function getExistTransactionId(string $orderId): ?string
+  private function toRefundPayload(array $payload): array
   {
+    foreach (['amount', 'shipping', 'sales_tax'] as $key) {
+      if (isset($payload[$key])) {
+        $payload[$key] = $this->negate($payload[$key]);
+      }
+    }
+
+    foreach ($payload['line_items'] ?? [] as $index => $lineItem) {
+      foreach (['unit_price', 'sales_tax'] as $key) {
+        if (isset($lineItem[$key])) {
+          $payload['line_items'][$index][$key] = $this->negate($lineItem[$key]);
+        }
+      }
+    }
+
+    return $payload;
+  }
+
+  private function negate(mixed $value): float
+  {
+    $value = (float) $value;
+
+    return $value === 0.0 ? 0.0 : -abs($value);
+  }
+
+  private function getExistTransactionId(string $orderId, ?OrderEntity $order = null): ?string
+  {
+    $customFields = $order?->getCustomFields() ?? [];
+    if (!empty($customFields['taxJarTransactionId'])) {
+      return (string) $customFields['taxJarTransactionId'];
+    }
+
     $taxJarLog = $this->getCreateLog($orderId);
 
     $transactionId = null;
@@ -989,6 +1079,13 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
     }
     return $transactionId;
+  }
+
+  private function getProductOrFail(?string $productId, string $lineItemId): ProductEntity
+  {
+    $product = $productId ? $this->productRepository->search(new Criteria([$productId]), $this->context)->get($productId) : null;
+
+    return $product instanceof ProductEntity ? $product : throw new \RuntimeException(sprintf('TaxJar payload cannot be built: product "%s" of order line item "%s" is not readable.', (string) $productId, $lineItemId));
   }
 
   private function getOrder($orderId): ?OrderEntity
@@ -1083,7 +1180,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
     }
 
-    $customerGroupId = $order->getOrderCustomer()->getCustomer()->getGroupId() ?? null;
+    $customerGroupId = $order->getOrderCustomer()?->getCustomer()?->getGroupId();
 
     $groupsToBeExempted = $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId) ?? [];
 
@@ -1129,9 +1226,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
       $parentProduct = null;
       /** @var ProductEntity $product */
-      $product = $this->productRepository
-        ->search(new Criteria([$lineItem->getProductId()]), $this->context)
-        ->get($lineItem->getProductId());
+      $product = $this->getProductOrFail($lineItem->getProductId(), $lineItem->getId());
 
       $productTaxCode = null;
       if($product->getCustomFields() && isset($product->getCustomFields()['product_tax_code_value'])) {
@@ -1143,7 +1238,7 @@ class TransactionSubscriber implements EventSubscriberInterface
           ->search(new Criteria([$product->getParentId()]), $this->context)
           ->get($product->getParentId());
 
-        if($parentProduct->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
+        if($parentProduct?->getCustomFields() && isset($parentProduct->getCustomFields()['product_tax_code_value'])) {
           $productTaxCode = $parentProduct->getCustomFields()['product_tax_code_value'];
         }
       }

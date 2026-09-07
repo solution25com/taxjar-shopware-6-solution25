@@ -16,6 +16,7 @@ use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
 use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Psr\Log\LoggerInterface;
 use Shopware\Core\Framework\Struct\ArrayEntity;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
@@ -44,6 +45,8 @@ class AddTaxCollector implements CartProcessorInterface
 
     private RuleMatcherService $ruleMatcher;
 
+    private LoggerInterface $logger;
+
     /**
      * @param EntityRepository $taxRepository
      * @param EntityRepository $taxProviderRepository
@@ -58,7 +61,8 @@ class AddTaxCollector implements CartProcessorInterface
         TaxCalculatorRegistry $taxCalculatorRegistry,
         SystemConfigService   $systemConfigService,
         EntityRepository      $ruleRepository,
-        RuleMatcherService    $ruleMatcher
+        RuleMatcherService    $ruleMatcher,
+        LoggerInterface       $logger
     ) {
         $this->taxRepository = $taxRepository;
         $this->taxProviderRepository = $taxProviderRepository;
@@ -66,6 +70,7 @@ class AddTaxCollector implements CartProcessorInterface
         $this->systemConfigService = $systemConfigService;
         $this->ruleRepository = $ruleRepository;
         $this->ruleMatcher = $ruleMatcher;
+        $this->logger = $logger;
     }
 
     private function getTaxProviderClass(string $taxRuleId, array $taxRules, array $taxProviders)
@@ -140,6 +145,7 @@ class AddTaxCollector implements CartProcessorInterface
 
         $bypassMatched = $this->ruleMatcher->matchesAny('bypassTaxJarRuleIds', $toCalculate, $context);
         $shopwareShippingExemptMatched = false;
+        $providerShippingTax = null;
 
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
             $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);
@@ -158,12 +164,24 @@ class AddTaxCollector implements CartProcessorInterface
             try {
                 $lineItemsTax = $taxProviderClass->calculate($lineItems, $context, $original);
             } catch (\Throwable $e) {
+                $this->logger->error('TaxJar tax calculation threw; falling back to native Shopware tax', [
+                    'salesChannelId' => $context->getSalesChannelId(),
+                    'taxId' => $taxId,
+                    'exceptionClass' => \get_class($e),
+                    'exceptionMessage' => $e->getMessage(),
+                ]);
+
                 $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
                     || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
                 continue;
             }
 
             if (empty($lineItemsTax)) {
+                $this->logger->warning('TaxJar returned no tax result; falling back to native Shopware tax', [
+                    'salesChannelId' => $context->getSalesChannelId(),
+                    'taxId' => $taxId,
+                ]);
+
                 $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
                     || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
                 continue;
@@ -184,18 +202,6 @@ class AddTaxCollector implements CartProcessorInterface
             $this->addRateToCart($lineItemsTax, $toCalculate);
 
             if (!empty($lineItemsTax)) {
-                $shippingTaxFromServiceProvider = 0;
-                $methodTaxAmount = 0;
-
-                if (!empty($lineItemsTax['shippingTax'])) {
-                    $shippingTaxFromServiceProvider = $lineItemsTax['shippingTax'];
-                }
-
-                $shippingMethodCalculatedTax = $original->getShippingCosts()->getCalculatedTaxes();
-                foreach ($shippingMethodCalculatedTax as $methodCalculatedTax) {
-                    $methodTaxAmount += $methodCalculatedTax->getTax();
-                }
-
                 foreach ($products as $product) {
                     $productId = $product->getReferencedId();
                     if (!empty($lineItemsTax[$productId])) {
@@ -208,14 +214,7 @@ class AddTaxCollector implements CartProcessorInterface
                         ]);
 
                         foreach ($calculatedTaxes as $calculatedTax) {
-                            $taxAmount = (float) $lineItemsTax[$productId];
-
-                            if ($shippingTaxFromServiceProvider) {
-                                $taxAmount += $shippingTaxFromServiceProvider - $methodTaxAmount;
-                                $shippingTaxFromServiceProvider = 0;
-                            }
-
-                            $calculatedTax->setTax($taxAmount);
+                            $calculatedTax->setTax((float) $lineItemsTax[$productId]);
 
                             if ($providerRate > 0) {
                                 $calculatedTax->assign([
@@ -226,13 +225,17 @@ class AddTaxCollector implements CartProcessorInterface
                     }
                 }
 
-                if (!empty($lineItemsTax['shippingTax'])) {
-                    $shippingCalculatedTaxes = $original->getShippingCosts()->getCalculatedTaxes();
-                    foreach ($shippingCalculatedTaxes as $shippingCalculatedTax) {
-                        $shippingCalculatedTax->setTax((float) 0);
-                    }
+                if (array_key_exists('shippingTax', $lineItemsTax)) {
+                    $providerShippingTax = [
+                        'tax' => (float) $lineItemsTax['shippingTax'],
+                        'rate' => (float) ($lineItemsTax['shippingTaxRate'] ?? 0),
+                    ];
                 }
             }
+        }
+
+        if ($providerShippingTax !== null) {
+            $this->applyProviderShippingTax($providerShippingTax, $toCalculate);
         }
 
         if ($bypassMatched || $shopwareShippingExemptMatched) {
@@ -262,6 +265,36 @@ class AddTaxCollector implements CartProcessorInterface
                 $toCalculate->markModified();
             }
         }
+    }
+
+    private function applyProviderShippingTax(array $providerShippingTax, Cart $toCalculate): void
+    {
+        $deliveries = $toCalculate->getDeliveries();
+        $totalShipping = $deliveries->getShippingCosts()->getTotalPriceAmount();
+        $rate = $providerShippingTax['rate'];
+        $taxRules = new TaxRuleCollection([new TaxRule($rate)]);
+        $remaining = $providerShippingTax['tax'];
+        $last = $deliveries->count() - 1;
+        $index = 0;
+
+        foreach ($deliveries as $delivery) {
+            $costs = $delivery->getShippingCosts();
+            $share = $index === $last || $totalShipping <= 0.0
+                ? $remaining
+                : round($providerShippingTax['tax'] * ($costs->getTotalPrice() / $totalShipping), 2);
+            $remaining -= $share;
+
+            $delivery->setShippingCosts(new CalculatedPrice(
+                $costs->getUnitPrice(),
+                $costs->getTotalPrice(),
+                new CalculatedTaxCollection([new CalculatedTax($share, $rate, $costs->getTotalPrice())]),
+                $taxRules,
+                $costs->getQuantity()
+            ));
+            ++$index;
+        }
+
+        $toCalculate->markModified();
     }
 
     /**

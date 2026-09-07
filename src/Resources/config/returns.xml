@@ -1,0 +1,19 @@
+<?xml version="1.0" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
+    <services>
+        <service id="solu1TaxJar\Core\Returning\OrderReturnCalculatorDecorator"
+                 decorates="Shopware\Commercial\ReturnManagement\Domain\Returning\OrderReturnCalculator"
+                 decoration-on-invalid="ignore">
+            <argument type="service" id="solu1TaxJar\Core\Returning\OrderReturnCalculatorDecorator.inner"/>
+            <argument type="service" id="Shopware\Core\System\SalesChannel\Context\SalesChannelContextRestorer"/>
+            <argument type="service" id="order_return.repository"/>
+            <argument type="service" id="Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator"/>
+            <argument type="service" id="Shopware\Core\Checkout\Cart\Price\AmountCalculator"/>
+            <argument type="service" id="Shopware\Core\Checkout\Cart\Tax\PercentageTaxRuleBuilder"/>
+            <argument type="service" id="Psr\Clock\ClockInterface"/>
+            <argument type="service" id="logger"/>
+        </service>
+    </services>
+</container>

@@ -37,6 +37,7 @@
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <argument type="service" id="rule.repository"/>
             <argument type="service" id="solu1TaxJar\Core\Rule\RuleMatcherService"/>
+            <argument type="service" id="logger"/>
             <tag name="shopware.cart.processor" priority="-6000" />
         </service>
 
@@ -45,6 +46,7 @@
             <argument type="service" id="s25_taxjar_log.repository" />
             <argument type="service" id="product.repository" />
             <argument type="service" id="solu1_taxjar.cache.tax_calculation"/>
+            <argument type="service" id="logger"/>
             <tag name="solu1.tax_calculator"/>
         </service>
 
@@ -98,7 +100,9 @@
             <argument type="tagged_iterator" tag="solu1.tax_calculator"/>
         </service>
 
-        <service id="solu1TaxJar\Service\ClientApiService" public="true" />
+        <service id="solu1TaxJar\Service\ClientApiService" public="true">
+            <argument type="service" id="logger"/>
+        </service>
 
 
         <service id="solu1TaxJar\Core\Api\Nexus\TaxJarNexusApiController" public="true">

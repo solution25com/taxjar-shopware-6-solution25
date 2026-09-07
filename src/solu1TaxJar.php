@@ -3,14 +3,27 @@ declare(strict_types=1);
 
 namespace solu1TaxJar;
 
+use Shopware\Commercial\ReturnManagement\Domain\Returning\OrderReturnCalculator;
 use Shopware\Core\Framework\Plugin;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
 use Shopware\Core\Framework\Plugin\Context\UpdateContext;
 use Shopware\Core\Kernel;
+use Symfony\Component\Config\FileLocator;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Loader\XmlFileLoader;
 
 class solu1TaxJar extends Plugin
 {
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+
+        if (class_exists(OrderReturnCalculator::class)) {
+            (new XmlFileLoader($container, new FileLocator(__DIR__ . '/Resources/config')))->load('returns.xml');
+        }
+    }
+
     public function install(InstallContext $installContext): void
     {
         $migrationCollection = $installContext->getMigrationCollection();

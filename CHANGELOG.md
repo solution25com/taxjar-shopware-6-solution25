@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.1] - 2026-09-07
+### Fixed
+- Log every TaxJar API failure instead of silently dropping batched orders
+- Calculate tax on shipping using the order's tax rules instead of Shopware's automatic tax
+- A button not showing on Shopware 6.7 due to outdated build files
+
 ## [v1.3.0] - 2026-08-24
 
 ### This release includes

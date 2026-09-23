@@ -1,7 +1,7 @@
 {
     "name": "solution25/tax-jar",
     "description": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries.",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "type": "shopware-platform-plugin",
     "license": "MIT",
     "authors": [
@@ -15,11 +15,11 @@
     "extra": {
         "shopware-plugin-class": "solu1TaxJar\\solu1TaxJar",
         "label": {
-            "de-DE": "TaxJar Sales Tax Modul für Shopware 6",
+            "de-DE": "TaxJar Sales Tax Modul f\u00fcr Shopware 6",
             "en-GB": "TaxJar Sales Tax Module for Shopware 6"
         },
         "description": {
-            "de-DE": "TaxJar Sales Tax Modul für Shopware 6, das Steuerberechnungen automatisiert, Nexus-Regionen unterstützt, Transaktionen erfasst und die Einhaltung gesetzlicher Vorgaben sichert.",
+            "de-DE": "TaxJar Sales Tax Modul f\u00fcr Shopware 6, das Steuerberechnungen automatisiert, Nexus-Regionen unterst\u00fctzt, Transaktionen erfasst und die Einhaltung gesetzlicher Vorgaben sichert.",
             "en-GB": "TaxJar Sales Tax Module for Shopware 6 that automates tax calculations, supports nexus regions, logs transactions, and ensures compliance across different states and countries."
         },
         "manufacturerLink": {

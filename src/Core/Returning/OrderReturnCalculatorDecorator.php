@@ -11,6 +11,7 @@ use Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator;
 use Shopware\Core\Checkout\Cart\Price\Struct\PriceCollection;
 use Shopware\Core\Checkout\Cart\Price\Struct\QuantityPriceDefinition;
 use Shopware\Core\Checkout\Cart\Tax\PercentageTaxRuleBuilder;
+use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
 use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Framework\Context;
@@ -29,6 +30,7 @@ class OrderReturnCalculatorDecorator extends OrderReturnCalculator
         PercentageTaxRuleBuilder $percentageTaxRuleBuilder,
         ClockInterface $clock,
         private readonly LoggerInterface $logger,
+        private readonly ShippingTaxRecovery $shippingTaxRecovery,
     ) {
         parent::__construct($contextRestorer, $orderReturnRepository, $calculator, $amountCalculator, $percentageTaxRuleBuilder, $clock);
     }
@@ -38,10 +40,18 @@ class OrderReturnCalculatorDecorator extends OrderReturnCalculator
         $criteria = new Criteria([$returnId]);
         $criteria->addAssociation('lineItems');
         $criteria->addAssociation('order');
+        $criteria->addAssociation('order.lineItems');
 
         $return = $this->orderReturnRepository->search($criteria, $context)->first();
-        $taxRules = $return ? $this->orderShippingTaxRules($return->getOrder(), $returnId) : null;
-        $shippingTotal = $return?->getShippingCosts()?->getTotalPrice() ?? 0.0;
+
+        if (!$return) {
+            $this->inner->calculate($returnId, $context);
+
+            return;
+        }
+
+        $shippingTotal = $return->getShippingCosts()?->getTotalPrice() ?? 0.0;
+        $taxRules = $this->resolveShippingTaxRules($return->getOrder(), $returnId);
 
         $this->inner->calculate($returnId, $context);
 
@@ -73,7 +83,7 @@ class OrderReturnCalculatorDecorator extends OrderReturnCalculator
         ]], $context);
     }
 
-    private function orderShippingTaxRules(?OrderEntity $order, string $returnId): ?TaxRuleCollection
+    private function resolveShippingTaxRules(?OrderEntity $order, string $returnId): ?TaxRuleCollection
     {
         $shippingCosts = $order?->getShippingCosts();
 
@@ -81,18 +91,37 @@ class OrderReturnCalculatorDecorator extends OrderReturnCalculator
             return null;
         }
 
-        if ($shippingCosts->getTaxRules()->count() > 0) {
-            return $shippingCosts->getTaxRules();
+        $storedRules = $shippingCosts->getTaxRules();
+        $isTaxed = $storedRules->filter(static fn (TaxRule $rule) => $rule->getTaxRate() > 0.0)->count() > 0;
+
+        if ($isTaxed || $shippingCosts->getTotalPrice() <= 0.0) {
+            return $storedRules;
         }
 
-        if ($shippingCosts->getTotalPrice() > 0.0) {
-            $this->logger->warning('Order has shipping costs but no shipping tax rules; keeping Shopware Auto tax for the return', [
+        $recovered = $this->shippingTaxRecovery->recover($order);
+
+        if (!$recovered) {
+            $this->logger->error('Order records untaxed shipping and its line item tax cannot be verified; keeping the Shopware return tax calculation', [
                 'orderId' => $order->getId(),
                 'orderNumber' => $order->getOrderNumber(),
                 'returnId' => $returnId,
             ]);
+
+            return null;
         }
 
-        return null;
+        if ($recovered->getTaxRate() <= 0.0) {
+            return $storedRules;
+        }
+
+        $this->logger->warning('Order stores shipping tax on a line item instead of the delivery; recovering the original rate for the return', [
+            'orderId' => $order->getId(),
+            'orderNumber' => $order->getOrderNumber(),
+            'returnId' => $returnId,
+            'taxRate' => $recovered->getTaxRate(),
+        ]);
+
+        return new TaxRuleCollection([$recovered]);
     }
+
 }

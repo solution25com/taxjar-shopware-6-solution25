@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.2] - 2026-09-23
+### Fixed
+- recover shipping tax for returns on orders placed before the delivery fix
+
+
 ## [v1.3.1] - 2026-09-07
 ### Fixed
 - Log every TaxJar API failure instead of silently dropping batched orders

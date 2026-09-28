@@ -63,7 +63,10 @@ Merchants can define custom tax rules, prioritize their execution order, and aut
 
 ## Compatibility
 
-* ✅ Shopware **6.6.x**
+| Shopware | Branch | Plugin version |
+|---|---|---|
+| 6.6.x | `main` | 1.x |
+| 6.7.x | `main-6.7` | 2.x |
 
 ---
 

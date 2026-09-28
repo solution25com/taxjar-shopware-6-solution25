@@ -10,7 +10,7 @@
                         <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                         {% block emizen_module_list_smart_bar_header_title_text %}
                             {{ $tc('sw-settings.index.title') }}
-                            <sw-icon name="small-arrow-medium-right" small></sw-icon>
+                            <mt-icon name="regular-chevron-right-xs" size="12px" />
                             {{ $t('sw-tax-log-module.general.mainMenuItemList') }}
                         {% endblock %}
 
@@ -27,7 +27,7 @@
         <template #smart-bar-actions>
             <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
             {% block sw_settings_test_tax_jar_connection %}
-                <sw-button
+                <mt-button
                     class="sw-settings-tax-connection__test-action"
                     variant="primary"
                     :is-loading="isLoading"
@@ -35,7 +35,7 @@
                     @click="exportLog"
                 >
                     {{ $tc('sw-tax-log-module.export.buttonLabel') }}
-                </sw-button>
+                </mt-button>
             {% endblock %}
         </template>
         <template #content>
@@ -44,10 +44,10 @@
                 :repository="getRepository"
                 :showSelection="false"
                 :columns="getColumns">
-                <template slot="column-request" slot-scope="{ item }">
+                <template #column-request="{ item }">
                     {{item.request}}
                 </template>
-                <template slot="column-response" slot-scope="{ item }">
+                <template #column-response="{ item }">
                     {{item.response}}
                 </template>
             </sw-entity-listing>

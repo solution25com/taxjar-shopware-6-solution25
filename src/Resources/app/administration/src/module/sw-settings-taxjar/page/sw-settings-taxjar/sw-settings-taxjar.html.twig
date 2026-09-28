@@ -18,9 +18,9 @@
                         <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                         {% block sw_settings_taxjar_smart_bar_header_title_text %}
                             {{ $tc('sw-settings.index.title') }}
-                            <sw-icon
+                            <mt-icon
                                     name="regular-chevron-right-xs"
-                                    small
+                                    size="12px"
                             />
                             {{ $tc('sw-settings-taxjar.general.textHeadline') }}
                         {% endblock %}
@@ -48,20 +48,20 @@
                 {% endblock %}
                 <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                 {% block sw_settings_tax_actions_log %}
-                    <sw-button
+                    <mt-button
                             class="sw-settings-tax__log-action"
                             variant="primary"
                             :is-loading="isLoading"
                             :disabled="isLoading"
-                            :router-link="{ name: 'sw.tax.log.module.list' }"
+                            @click="$router.push({ name: 'sw.tax.log.module.list' })"
                     >
                         {{ $tc('sw-settings-taxjar.general.buttonLog') }}
-                    </sw-button>
+                    </mt-button>
                 {% endblock %}
 
                 <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                 {% block sw_settings_clear_tax_jar_cache %}
-                    <sw-button
+                    <mt-button
                             class="sw-settings-tax-cache-clear-action"
                             variant="primary"
                             :is-loading="isClearingTaxJarCache"
@@ -69,12 +69,12 @@
                             @click="clearTaxJarCache"
                     >
                         Clear TaxJar Cache
-                    </sw-button>
+                    </mt-button>
                 {% endblock %}
 
                 <!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
                 {% block sw_settings_test_tax_jar_connection %}
-                    <sw-button
+                    <mt-button
                             class="sw-settings-tax-connection__test-action"
                             variant="primary"
                             :is-loading="isLoading"
@@ -82,7 +82,7 @@
                             @click="testConnection"
                     >
                         {{ $tc('sw-settings-taxjar.general.testButtonLabel') }}
-                    </sw-button>
+                    </mt-button>
                 {% endblock %}
             </template>
         {% endblock %}

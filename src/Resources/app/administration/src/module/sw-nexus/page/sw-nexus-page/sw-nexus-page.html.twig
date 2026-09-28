@@ -5,14 +5,13 @@
     </div>
 
     <div v-else>
-      <sw-alert
+      <mt-banner
               v-if="errorMessage"
-              variant="error"
-              :title="'Nexus Error'"
-              :showIcon="true"
+              variant="critical"
+              title="Nexus Error"
               class="nexus-error-alert">
         {{ errorMessage }}
-      </sw-alert>
+      </mt-banner>
 
       <sw-data-grid
               v-if="!errorMessage"

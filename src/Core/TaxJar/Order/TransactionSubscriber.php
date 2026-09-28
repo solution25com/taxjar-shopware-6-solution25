@@ -10,6 +10,7 @@ use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
+use Shopware\Core\Checkout\Order\Aggregate\OrderDelivery\OrderDeliveryEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
@@ -380,11 +381,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped') {
+      if($this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() != 'shipped') {
         $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
 
         if ($selectedFlow === 'ship') {
-          if ($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() !== 'shipped') {
+          if ($this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() !== 'shipped') {
             return;
           }
         }
@@ -483,13 +484,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         $totalAmount += $lineTotal;
       }
 
-      $shippingOrderAddress = null;
-      if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
-        $firstDelivery = $order->getDeliveries()->first();
-        if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
-          $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
-        }
-      }
+      $shippingOrderAddress = $this->getPrimaryDelivery($order)?->getShippingOrderAddress();
 
       $billingAddress = $order->getBillingAddress();
       $destinationAddress = $shippingOrderAddress ?: $billingAddress;
@@ -619,13 +614,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       
       $refundTransactionId = $originalTransactionId . '_partial_refund_' . ($refundData['return_id'] ?? 'unknown');
 
-      $shippingOrderAddress = null;
-      if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
-        $firstDelivery = $order->getDeliveries()->first();
-        if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
-          $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
-        }
-      }
+      $shippingOrderAddress = $this->getPrimaryDelivery($order)?->getShippingOrderAddress();
 
       $billingAddress = $order->getBillingAddress();
       $destinationAddress = $shippingOrderAddress ?: $billingAddress;
@@ -718,11 +707,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if($order->getDeliveries()?->first()?->getStateMachineState()?->getTechnicalName() != 'shipped') {
+      if($this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() != 'shipped') {
         $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
 
         if ($selectedFlow === 'ship') {
-          if ($order->getDeliveries()?->first()->getStateMachineState()->getTechnicalName() !== 'shipped') {
+          if ($this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() !== 'shipped') {
             return;
           }
         }
@@ -1101,11 +1090,19 @@ class TransactionSubscriber implements EventSubscriberInterface
     $criteria->addAssociation('deliveries.shippingOrderAddress.country');
     $criteria->addAssociation('deliveries.shippingOrderAddress.countryState');
     $criteria->addAssociation('deliveries.stateMachineState');
+    $criteria->addAssociation('primaryOrderDelivery.shippingOrderAddress.country');
+    $criteria->addAssociation('primaryOrderDelivery.shippingOrderAddress.countryState');
+    $criteria->addAssociation('primaryOrderDelivery.stateMachineState');
     $criteria->addAssociation('billingAddress.country');
     $criteria->addAssociation('billingAddress.countryState');
     return $this->orderRepository
       ->search($criteria, $this->context)
       ->get($orderId);
+  }
+
+  private function getPrimaryDelivery(OrderEntity $order): ?OrderDeliveryEntity
+  {
+    return $order->getPrimaryOrderDelivery() ?? $order->getDeliveries()?->first();
   }
 
   private function getHeaders(): array
@@ -1137,13 +1134,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $orderTotalAmount = $amounts['orderTotalAmount'];
     $orderTaxAmount = $amounts['orderTaxAmount'];
 
-    $shippingOrderAddress = null;
-    if ($order->getDeliveries() && $order->getDeliveries()->count() > 0) {
-      $firstDelivery = $order->getDeliveries()->first();
-      if ($firstDelivery && method_exists($firstDelivery, 'getShippingOrderAddress')) {
-        $shippingOrderAddress = $firstDelivery->getShippingOrderAddress();
-      }
-    }
+    $shippingOrderAddress = $this->getPrimaryDelivery($order)?->getShippingOrderAddress();
 
     $billingAddress = $order->getBillingAddress();
     $destinationAddress = $shippingOrderAddress ?: $billingAddress;

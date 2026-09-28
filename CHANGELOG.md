@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.0.0]
+
+### Changed
+- Supported Shopware version narrowed to 6.7 (`~6.7.0`). Shopware 6.6 remains supported on the `main` branch in the 1.x release line.
+- Removed the Webpack administration build output (`Resources/public/administration/js/` and `css/`), which only applies to Shopware 6.6, including the unused `i-t-g-co-tax` bundle left from an old plugin name. This branch ships the Vite bundle alone.
+- Order commit, refund and ship-flow checks use the Shopware 6.7 primary order delivery, falling back to the first delivery when none is set.
+- Administration buttons, icons and the nexus error banner use the Meteor components (`mt-button`, `mt-icon`, `mt-banner`). On 6.7 the deprecated `sw-button` wrapper forced every button to the secondary style, and the nexus error alert rendered without its error styling.
+- Log list custom columns use Vue 3 slot syntax, and the header arrow icon uses an icon name that exists in the 6.7 icon kit.
+- Removed `TaxExtension::getDefinitionClass()`, which Shopware 6.7 no longer declares on `EntityExtension`.
+
+
 ## [v1.3.2] - 2026-09-23
 ### Fixed
 - recover shipping tax for returns on orders placed before the delivery fix

@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.4.0] - 2026-10-05
+
+### This release includes
+- exposed the complete TaxJar `/v2/taxes` response as the `taxjar_calculation` cart extension, with one entry per tax rule mapped to TaxJar, the request that produced it, whether it came from the API or the cache, and whether the ZIP/state fallback was used
+- stored the same data on new orders in the `taxjar_calculation` order custom field
+- overwrote `taxjar_calculation` with the latest result whenever an order is recalculated, including admin order edits, and marked it `skipped` when TaxJar no longer applies to the recalculated order
+- recorded failed, skipped and bypassed calculations with a status and reason instead of leaving the data empty
+- stored the TaxJar tax calculation of every partial refund in the `taxjar_refund_calculations` order custom field, keyed by return id
+- documented the field names and data structure in the README
+- fixed removing the tax service provider from a tax rule in Settings > Tax, which failed and left the provider assigned
+- tax amounts charged on carts and orders are unchanged
+
 ## [v1.3.2] - 2026-09-23
 ### Fixed
 - recover shipping tax for returns on orders placed before the delivery fix

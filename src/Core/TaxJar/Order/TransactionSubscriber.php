@@ -23,6 +23,7 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Core\TaxJar\TaxJarCalculation;
 use solu1TaxJar\Service\ClientApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Psr\Log\LoggerInterface;
@@ -531,6 +532,8 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest);
 
+      $this->persistRefundCalculation($order, $orderReturn->getId(), $this->toRefundCalculation($taxRequest, $taxResponse));
+
       if (isset($taxResponse['error'])) {
         $this->logOrderTransactionDiagnostic('taxjar_operation_failed', [
           'operation' => 'Partial Refund Tax Calculation',
@@ -555,6 +558,41 @@ class TransactionSubscriber implements EventSubscriberInterface
     } catch (\Throwable $e) {
       $this->logTaxJarException('Partial Refund Tax Calculation', $e, ['orderId' => $order->getId()]);
       return null;
+    }
+  }
+
+  private function toRefundCalculation(array $taxRequest, mixed $taxResponse): array
+  {
+    $sandbox = (bool) $this->_isSandboxMode();
+
+    if (\is_array($taxResponse) && isset($taxResponse['error'])) {
+      return TaxJarCalculation::entry(TaxJarCalculation::STATUS_FAILED, 'api_error', TaxJarCalculation::SOURCE_API, false, $sandbox, $taxRequest, null, $taxResponse['error']);
+    }
+
+    if (!\is_array($taxResponse) || $taxResponse === []) {
+      return TaxJarCalculation::entry(TaxJarCalculation::STATUS_FAILED, 'unusable_response', TaxJarCalculation::SOURCE_API, false, $sandbox, $taxRequest);
+    }
+
+    return TaxJarCalculation::entry(TaxJarCalculation::STATUS_SUCCESS, null, TaxJarCalculation::SOURCE_API, false, $sandbox, $taxRequest, ['tax' => $taxResponse]);
+  }
+
+  private function persistRefundCalculation(OrderEntity $order, string $returnId, array $calculation): void
+  {
+    try {
+      $customFields = $order->getCustomFields() ?? [];
+      $refundCalculations = \is_array($customFields[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD] ?? null)
+        ? $customFields[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD]
+        : [];
+      $refundCalculations[$returnId] = TaxJarCalculation::refund($returnId, $calculation);
+
+      $this->orderRepository->update([[
+        'id' => $order->getId(),
+        'customFields' => [
+          TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD => $refundCalculations,
+        ],
+      ]], $this->context);
+    } catch (\Throwable $e) {
+      $this->logTaxJarException('Partial Refund Tax Calculation Persist', $e, ['orderId' => $order->getId(), 'orderNumber' => $order->getOrderNumber()]);
     }
   }
 

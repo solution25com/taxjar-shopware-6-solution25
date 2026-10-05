@@ -40,23 +40,38 @@ Component.register('sw-tax-provider-card', {
 
     methods: {
         changeTaxProvider(id) {
+            const mapping = this.tax.extensions.taxExtension;
+
+            if (!id) {
+                this.currentTaxProvider = null;
+                if (mapping?.id) {
+                    this.taxMappingRepository.delete(mapping.id, Context.api).then(() => {
+                        this.tax.extensions.taxExtension = null;
+                    });
+                }
+
+                return;
+            }
+
             this.taxProviderRepository.get(id, Context.api).then((item) => {
                 this.currentTaxProvider = item;
-                if (this.currentTaxProvider) {
-                    this.taxExtension = this.taxMappingRepository.create(Shopware.Context.api);
-                    if (this.tax.extensions.taxExtension) {
-                        this.taxExtension.taxId = this.tax.id;
-                        this.taxExtension.providerId = this.currentTaxProvider.id;
-                        this.taxMappingRepository.delete(this.tax.extensions.taxExtension.id).then(() => {});
-                        this.taxMappingRepository.save(this.taxExtension).then(() => {});
-                    } else {
-                        this.taxExtension.taxId = this.tax.id;
-                        this.taxExtension.providerId = this.currentTaxProvider.id;
-                        this.taxMappingRepository.save(this.taxExtension).then(() => {});
-                    }
-                } else {
-                    this.taxMappingRepository.delete(this.tax.extensions.taxExtension.id,  Context.api).then(() => {});
+                if (!item) {
+                    return;
                 }
+
+                const taxExtension = this.taxMappingRepository.create(Context.api);
+                taxExtension.taxId = this.tax.id;
+                taxExtension.providerId = item.id;
+
+                const removeCurrent = mapping?.id
+                    ? this.taxMappingRepository.delete(mapping.id, Context.api)
+                    : Promise.resolve();
+
+                removeCurrent
+                    .then(() => this.taxMappingRepository.save(taxExtension, Context.api))
+                    .then(() => {
+                        this.tax.extensions.taxExtension = taxExtension;
+                    });
             });
         },
         createdComponent() {

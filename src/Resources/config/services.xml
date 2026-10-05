@@ -48,6 +48,7 @@
             <argument type="service" id="solu1_taxjar.cache.tax_calculation"/>
             <argument type="service" id="logger"/>
             <tag name="solu1.tax_calculator"/>
+            <tag name="kernel.reset" method="reset"/>
         </service>
 
         <service id="solu1TaxJar\Core\Rule\UsStateRule">
@@ -124,6 +125,10 @@
         <service id="solu1TaxJar\Subscriber\OrderAddressMismatchSubscriber">
             <argument type="service" id="order.repository"/>
             <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
+        <service id="solu1TaxJar\Subscriber\OrderTaxJarCalculationSubscriber">
             <tag name="kernel.event_subscriber"/>
         </service>
 

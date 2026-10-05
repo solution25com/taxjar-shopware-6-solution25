@@ -23,7 +23,9 @@ use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Core\Content\Extension\TaxExtensionEntity;
 use solu1TaxJar\Core\Content\TaxProvider\TaxProviderEntity;
 use solu1TaxJar\Core\Rule\RuleMatcherService;
+use solu1TaxJar\Core\Tax\TaxCalculationResultAwareInterface;
 use solu1TaxJar\Core\Tax\TaxCalculatorRegistry;
+use solu1TaxJar\Core\TaxJar\TaxJarCalculation;
 
 class AddTaxCollector implements CartProcessorInterface
 {
@@ -103,6 +105,8 @@ class AddTaxCollector implements CartProcessorInterface
 
     public function process(CartDataCollection $data, Cart $original, Cart $toCalculate, SalesChannelContext $context, CartBehavior $behavior): void
     {
+        $toCalculate->removeExtension(TaxJarCalculation::EXTENSION_NAME);
+
         $products = $toCalculate->getLineItems()->filterType(LineItem::PRODUCT_LINE_ITEM_TYPE);
         $taxProviderMapping = [];
 
@@ -146,6 +150,7 @@ class AddTaxCollector implements CartProcessorInterface
         $bypassMatched = $this->ruleMatcher->matchesAny('bypassTaxJarRuleIds', $toCalculate, $context);
         $shopwareShippingExemptMatched = false;
         $providerShippingTax = null;
+        $calculations = [];
 
         foreach ($taxProviderMapping as $taxId => $requestDetails) {
             $taxProviderClass = $this->getTaxProviderClass($taxId, $taxRules, $taxProviders);
@@ -154,6 +159,13 @@ class AddTaxCollector implements CartProcessorInterface
             }
 
             if ($bypassMatched) {
+                if ($taxProviderClass instanceof TaxCalculationResultAwareInterface) {
+                    $calculations[] = $this->withTaxId(
+                        TaxJarCalculation::entry(TaxJarCalculation::STATUS_BYPASSED, 'bypass_rule'),
+                        $taxId
+                    );
+                }
+
                 $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
                     || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
                 continue;
@@ -171,9 +183,26 @@ class AddTaxCollector implements CartProcessorInterface
                     'exceptionMessage' => $e->getMessage(),
                 ]);
 
+                if ($taxProviderClass instanceof TaxCalculationResultAwareInterface) {
+                    $calculations[] = $this->withTaxId(
+                        TaxJarCalculation::entry(TaxJarCalculation::STATUS_FAILED, 'exception', error: [
+                            'class' => \get_class($e),
+                            'message' => $e->getMessage(),
+                        ]),
+                        $taxId
+                    );
+                }
+
                 $shopwareShippingExemptMatched = $shopwareShippingExemptMatched
                     || $this->ruleMatcher->matchesAny('shopwareShippingTaxExemptRuleIds', $toCalculate, $context);
                 continue;
+            }
+
+            if ($taxProviderClass instanceof TaxCalculationResultAwareInterface) {
+                $calculation = $taxProviderClass->getLastCalculation();
+                if ($calculation !== null) {
+                    $calculations[] = $this->withTaxId($calculation, $taxId);
+                }
             }
 
             if (empty($lineItemsTax)) {
@@ -234,6 +263,10 @@ class AddTaxCollector implements CartProcessorInterface
             }
         }
 
+        if ($calculations !== []) {
+            $toCalculate->addExtension(TaxJarCalculation::EXTENSION_NAME, TaxJarCalculation::create($calculations));
+        }
+
         if ($providerShippingTax !== null) {
             $this->applyProviderShippingTax($providerShippingTax, $toCalculate);
         }
@@ -265,6 +298,11 @@ class AddTaxCollector implements CartProcessorInterface
                 $toCalculate->markModified();
             }
         }
+    }
+
+    private function withTaxId(array $calculation, string $taxId): array
+    {
+        return ['taxId' => $taxId] + $calculation;
     }
 
     private function applyProviderShippingTax(array $providerShippingTax, Cart $toCalculate): void

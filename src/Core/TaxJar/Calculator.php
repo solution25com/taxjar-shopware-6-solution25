@@ -18,10 +18,11 @@ use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Core\Tax\TaxCalculationResultAwareInterface;
 use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
 use Symfony\Component\Cache\Adapter\TagAwareAdapterInterface;
 
-class Calculator implements TaxCalculatorInterface
+class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInterface
 {
     private const CACHE_ID = 's25_tax_jar_response_';
 
@@ -75,6 +76,8 @@ class Calculator implements TaxCalculatorInterface
 
     private LoggerInterface $logger;
 
+    private ?array $lastCalculation = null;
+
     /**
      * @param SystemConfigService $systemConfigService
      * @param EntityRepository $taxJarLogRepository
@@ -108,6 +111,11 @@ class Calculator implements TaxCalculatorInterface
         return is_array($result) ? $result : [];
     }
 
+    public function getLastCalculation(): ?array
+    {
+        return $this->lastCalculation;
+    }
+
     /**
      * @param $lineItems
      * @param SalesChannelContext $context
@@ -117,8 +125,11 @@ class Calculator implements TaxCalculatorInterface
     public function calculateTax($lineItems, SalesChannelContext $context, Cart $cart): false|array
     {
         $this->salesChannelId = $context->getSalesChannelId();
+        $this->lastCalculation = null;
         if ($this->_isActive()) {
             if (!$context->getCustomer() || !$context->getCustomer()->getActiveShippingAddress()) {
+                $this->recordCalculation(TaxJarCalculation::STATUS_SKIPPED, 'missing_customer_or_shipping_address');
+
                 return [];
             }
 
@@ -174,35 +185,47 @@ class Calculator implements TaxCalculatorInterface
             $request = array_merge($shippingFromAddress, $cartInfo);
             $cacheId = $this->getTaxCalculationCacheId($request);
 
-            $storedResponse = $this->getResponseFromCache($cacheId);
+            $cachedEntry = $this->getResponseFromCache($cacheId);
+            $storedResponse = $cachedEntry['tax'] ?? [];
+            $appliedRequest = $request;
+            $addressFallback = false;
 
             if (!empty($storedResponse)) {
+                $source = TaxJarCalculation::SOURCE_CACHE;
+
                 if (!empty($storedResponse['taxjar_address_mismatch'])) {
+                    $this->recordCalculation(TaxJarCalculation::STATUS_ADDRESS_MISMATCH, 'zip_state_mismatch', $source, false, $request);
+
                     return ['taxjar_address_mismatch' => true];
                 }
 
                 $taxInformation = $storedResponse;
+
+                if (!empty($cachedEntry['taxjar_address_fallback'])) {
+                    $addressFallback = true;
+                    $appliedRequest = $this->buildAddressFallbackRequest($request);
+                }
             } else {
+                $source = TaxJarCalculation::SOURCE_API;
                 $taxInformation = $this->_getTaxRateWithHttpRequest($context, $request);
 
                 if ($this->isZipStateMismatchError($taxInformation)) {
                     $this->logAddressMismatch($context, $request, $taxInformation, 'initial');
 
-                    $fallbackRequest = $request;
-                    $fallbackRequest['to_zip'] = null;
-                    $fallbackRequest['to_city'] = null;
-                    $fallbackRequest['to_street'] = null;
+                    $fallbackRequest = $this->buildAddressFallbackRequest($request);
 
                     $fallbackTaxInformation = $this->_getTaxRateWithHttpRequest($context, $fallbackRequest);
 
                     if (isset($fallbackTaxInformation['breakdown']['line_items'])) {
                         $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_success');
                         $this->setResponseIntoCache(
-                            ['tax' => $fallbackTaxInformation],
+                            ['tax' => $fallbackTaxInformation, 'taxjar_address_fallback' => true],
                             $cacheId,
                             $context->getCustomer()?->getId()
                         );
                         $taxInformation = $fallbackTaxInformation;
+                        $appliedRequest = $fallbackRequest;
+                        $addressFallback = true;
                     } else {
                         if ($this->isZipStateMismatchError($fallbackTaxInformation) || isset($fallbackTaxInformation['error'])) {
                             $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_failed');
@@ -235,14 +258,66 @@ class Calculator implements TaxCalculatorInterface
                         ? (float) ($shippingBreakdown['combined_tax_rate'] ?? 0) * 100
                         : 0.0;
                 }
+                $this->recordCalculation(TaxJarCalculation::STATUS_SUCCESS, null, $source, $addressFallback, $appliedRequest, ['tax' => $taxInformation]);
+
                 return $processedResponse;
             }
 
             if ($this->isZipStateMismatchError($taxInformation)) {
+                $this->recordCalculation(TaxJarCalculation::STATUS_ADDRESS_MISMATCH, 'zip_state_mismatch', $source, false, $request, null, $taxInformation['error']);
+
                 return ['taxjar_address_mismatch' => true];
             }
+
+            if (is_array($taxInformation) && isset($taxInformation['error'])) {
+                $this->recordCalculation(TaxJarCalculation::STATUS_FAILED, 'api_error', $source, $addressFallback, $appliedRequest, null, $taxInformation['error']);
+            } else {
+                $this->recordCalculation(
+                    TaxJarCalculation::STATUS_FAILED,
+                    'unusable_response',
+                    $source,
+                    $addressFallback,
+                    $appliedRequest,
+                    is_array($taxInformation) && $taxInformation !== [] ? ['tax' => $taxInformation] : null
+                );
+            }
+
+            return false;
         }
+
+        $this->recordCalculation(TaxJarCalculation::STATUS_SKIPPED, 'inactive');
+
         return false;
+    }
+
+    private function recordCalculation(
+        string $status,
+        ?string $reason = null,
+        ?string $source = null,
+        bool $addressFallback = false,
+        ?array $request = null,
+        ?array $response = null,
+        mixed $error = null
+    ): void {
+        $this->lastCalculation = TaxJarCalculation::entry(
+            $status,
+            $reason,
+            $source,
+            $addressFallback,
+            (bool) $this->_isSandboxMode(),
+            $request,
+            $response,
+            $error
+        );
+    }
+
+    private function buildAddressFallbackRequest(array $request): array
+    {
+        $request['to_zip'] = null;
+        $request['to_city'] = null;
+        $request['to_street'] = null;
+
+        return $request;
     }
 
     /**
@@ -627,10 +702,10 @@ class Calculator implements TaxCalculatorInterface
 
     /**
      * @param string $cacheId
-     * @return array|mixed
+     * @return array
      * @throws InvalidArgumentException
      */
-    private function getResponseFromCache(string $cacheId): mixed
+    private function getResponseFromCache(string $cacheId): array
     {
         $ttl = $this->getTaxCalculationCacheTtl();
 
@@ -643,10 +718,8 @@ class Calculator implements TaxCalculatorInterface
             return [];
         }
         $response = \unserialize($response, ['allowed_classes' => [\DateTime::class]]);
-        if (is_array($response) && !empty($response)) {
-            if (isset($response['tax'])) {
-                return $response['tax'];
-            }
+        if (is_array($response) && isset($response['tax'])) {
+            return $response;
         }
 
         return [];

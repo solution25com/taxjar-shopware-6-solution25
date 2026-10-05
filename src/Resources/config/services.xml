@@ -127,5 +127,9 @@
             <tag name="kernel.event_subscriber"/>
         </service>
 
+        <service id="solu1TaxJar\Subscriber\OrderTaxJarCalculationSubscriber">
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
     </services>
 </container>

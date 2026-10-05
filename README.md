@@ -163,3 +163,91 @@ composer require solution25/tax-jar
 3. If Nexus is not configured, it will display a link that navigates to the TaxJar Dashboard to configure
 
 ---
+
+## TaxJar Calculation Data for Integrations
+
+The complete TaxJar `/v2/taxes` response used to tax a cart is exposed to other plugins, so reporting and reconciliation can work with the same data TaxJar returned.
+
+### Where the data lives
+
+| Location | Key | Written |
+| --- | --- | --- |
+| Cart extension | `taxjar_calculation` | Every cart calculation in which a tax rule mapped to TaxJar is involved |
+| Order custom field | `taxjar_calculation` | On order placement, and overwritten on every order recalculation (admin order edits, adding products, promotions) |
+| Order custom field | `taxjar_refund_calculations` | On every partial refund (Shopware Commercial return management) |
+
+The key names are available as constants on `solu1TaxJar\Core\TaxJar\TaxJarCalculation`.
+
+```php
+use solu1TaxJar\Core\TaxJar\TaxJarCalculation;
+
+$calculation = $cart->getExtension(TaxJarCalculation::EXTENSION_NAME)?->all();
+
+$calculation = $order->getCustomFields()[TaxJarCalculation::ORDER_CUSTOM_FIELD] ?? null;
+
+$refunds = $order->getCustomFields()[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD] ?? [];
+```
+
+### `taxjar_calculation`
+
+```json
+{
+    "version": 1,
+    "status": "success",
+    "calculatedAt": "2026-09-30T11:36:24+00:00",
+    "sandbox": false,
+    "calculations": [
+        {
+            "taxId": "019f83783709722f821d101a06bc0a51",
+            "status": "success",
+            "reason": null,
+            "source": "api",
+            "addressFallback": false,
+            "request": { "from_country": "US", "to_country": "US", "to_zip": "90002", "amount": 800, "shipping": 10, "line_items": [] },
+            "response": { "tax": { "amount_to_collect": 58.73, "rate": 0.0725, "has_nexus": true, "jurisdictions": {}, "breakdown": { "line_items": [] } } },
+            "error": null
+        }
+    ]
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `version` | Schema version of this structure. |
+| `status` | Overall result: `success`, `partial`, `failed`, `skipped`, `bypassed` or `address_mismatch`. |
+| `reason` | Present only when `status` is `skipped` with reason `not_applicable`: the order was recalculated but no tax rule of its line items is mapped to TaxJar any more. `calculations` is empty in that case. |
+| `calculatedAt` | ISO 8601 time the cart was calculated. |
+| `sandbox` | `true` when the calculation used the TaxJar sandbox, `null` when TaxJar was not called. |
+| `calculations` | One entry per Shopware tax rule mapped to TaxJar. Products are grouped by tax rule and each group is sent to TaxJar in its own `/v2/taxes` request, so a cart with products of two mapped tax rules has two entries. |
+
+Each entry in `calculations`:
+
+| Field | Description |
+| --- | --- |
+| `taxId` | Shopware tax rule id of the product group. |
+| `status` | `success`, `failed`, `skipped`, `bypassed` or `address_mismatch`. |
+| `reason` | Why the entry is not `success`: `inactive` (TaxJar disabled for the sales channel), `missing_customer_or_shipping_address`, `bypass_rule`, `api_error`, `unusable_response`, `zip_state_mismatch` or `exception`. |
+| `source` | `api` when the response was fetched from TaxJar while handling the current request, `cache` when it was stored by an earlier request and read from the plugin's calculation cache. Shopware calculates a cart several times per request, so later passes reuse the response fetched by the first one and still report `api`. A cached response is the unmodified response of the earlier identical request. |
+| `addressFallback` | `true` when TaxJar rejected the ZIP/state combination and the response comes from the retry without ZIP, city and street. |
+| `request` | The exact payload sent to `/v2/taxes` for this response. |
+| `response` | The unmodified `/v2/taxes` response body (`{"tax": {...}}`), or `null` when no usable response was received. |
+| `error` | The TaxJar error body or exception details for failed entries, otherwise `null`. |
+
+`response.tax.breakdown.line_items[].id` is the Shopware **product id** (the line item's `referencedId`).
+
+The tax charged on the cart and order is the sum of `response.tax.breakdown.line_items[].tax_collectable` plus `response.tax.breakdown.shipping.tax_collectable` when shipping is included in the calculation. TaxJar rounds each line separately and rounds `amount_to_collect` on the total, so the two can differ by 0.01. Use the line item values when reconciling against the order.
+
+Status rules:
+
+- Tax amounts on the cart and order are only taken from TaxJar for `success` entries. For `failed`, `skipped` and `bypassed` entries the native Shopware tax applies, exactly as before this data was exposed.
+- `partial` means at least one group succeeded while another did not.
+- On order placement the field is only written when a tax rule mapped to TaxJar is involved. On recalculation it is always written, so the order never keeps a response that no longer applies.
+
+### `taxjar_refund_calculations`
+
+An object keyed by the Shopware return id. Each value has the same entry fields as above (`status`, `reason`, `source`, `request`, `response`, `error`) plus `version`, `returnId`, `calculatedAt` and `sandbox`. `request` is the payload the plugin sent to `/v2/taxes` for the returned line items. A full refund (payment status `refunded`) does not calculate tax with TaxJar. It reverses the order, so `taxjar_calculation` applies to it.
+
+The fields are not registered as administration custom fields. They are read and written through the API and DAL like any other order custom field.
+
+---
+

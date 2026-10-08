@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.4.1] - 2026-10-08
+
+### This release includes
+- fixed partial refunds so every return of an order is reported to TaxJar, not only the first one, and the return services only load when Shopware Commercial is active
+- added a TaxJar refunds card on the order to send pending and later-added return items, view the TaxJar response per item, and a setting to send partial refunds on payment status change (default) or manually
+
 ## [v1.4.0] - 2026-10-05
 
 ### This release includes

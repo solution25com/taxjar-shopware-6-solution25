@@ -19,7 +19,8 @@ class solu1TaxJar extends Plugin
     {
         parent::build($container);
 
-        if (class_exists(OrderReturnCalculator::class)) {
+        $bundles = $container->hasParameter('kernel.bundles') ? $container->getParameter('kernel.bundles') : [];
+        if (isset($bundles['SwagCommercial']) && class_exists(OrderReturnCalculator::class)) {
             (new XmlFileLoader($container, new FileLocator(__DIR__ . '/Resources/config')))->load('returns.xml');
         }
     }

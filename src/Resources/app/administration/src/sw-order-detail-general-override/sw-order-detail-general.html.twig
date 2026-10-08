@@ -1,0 +1,9 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block sw_order_detail_general_line_items_card %}
+    {% parent %}
+
+    <solu1-taxjar-refunds-card
+        :order-id="orderId"
+        :order="order"
+    />
+{% endblock %}

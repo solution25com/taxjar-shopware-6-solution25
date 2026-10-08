@@ -14,6 +14,8 @@ final class TaxJarCalculation
 
     public const ORDER_REFUND_CUSTOM_FIELD = 'taxjar_refund_calculations';
 
+    public const ORDER_REPORTED_REFUNDS_CUSTOM_FIELD = 'taxjar_reported_refunds';
+
     public const SCHEMA_VERSION = 1;
 
     public const STATUS_SUCCESS = 'success';

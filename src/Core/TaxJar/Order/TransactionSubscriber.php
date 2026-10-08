@@ -9,6 +9,7 @@ use GuzzleHttp\Psr7\Request;
 use Shopware\Core\Checkout\Cart\Event\CheckoutOrderPlacedEvent;
 use solu1TaxJar\Core\Content\TaxLog\TaxLogEntity;
 use Shopware\Core\Checkout\Cart\LineItem\LineItem;
+use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\Aggregate\OrderDelivery\OrderDeliveryEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
@@ -20,7 +21,9 @@ use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Dbal\Common\RepositoryIterator;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\ContainsFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Sorting\FieldSorting;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
@@ -40,6 +43,8 @@ class TransactionSubscriber implements EventSubscriberInterface
   public const ORDER_DELETE_REQUEST_TYPE = 'Order Delete Transaction';
 
   public const ORDER_CANCEL_REQUEST_TYPE = 'Order Cancel Transaction';
+
+  public const PARTIAL_REFUND_REPORTING_MANUAL = 'manual';
 
   public const VERSION = '1.10.4';
 
@@ -382,6 +387,10 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
+      if ($this->isManualRefundReporting($order)) {
+        return;
+      }
+
       if($this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() != 'shipped') {
         $selectedFlow = $this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $this->salesChannelId);
 
@@ -394,26 +403,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $this->salesChannelId = $order->getSalesChannelId();
 
-      $criteria = new Criteria();
-      $criteria->addFilter(new EqualsFilter('orderId', $orderId));
-      $criteria->addAssociation('order');
-      $criteria->addAssociation('lineItems');
-
-      $orderReturn = $this->orderReturnRepository
-        ->search($criteria, $this->context)
-        ->first();
-
-      if (!$orderReturn) {
-        return;
-      }
-
-      $refundData = $this->calculatePartialRefundTax($order, $orderReturn);
-
-      if (empty($refundData)) {
-        return;
-      }
-
-      $this->createPartialRefundTransaction($order, $refundData);
+      $this->reportPendingRefunds($order);
 
     } catch (\Throwable $e) {
       $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $event->getOrderId()]);
@@ -424,14 +414,13 @@ class TransactionSubscriber implements EventSubscriberInterface
   /**
    * Calculate tax for partial refund using TaxJar API
    * @param OrderEntity $order
-   * @param mixed $orderReturn
+   * @param array $pendingItems
    * @return array|null
    */
-  private function calculatePartialRefundTax(OrderEntity $order, $orderReturn): ?array
+  private function calculatePartialRefundTax(OrderEntity $order, string $returnId, string $transactionId, array $pendingItems): ?array
   {
     try {
-      $returnedLineItems = $orderReturn->getLineItems();
-      if (!$returnedLineItems || $returnedLineItems->count() === 0) {
+      if ($pendingItems === []) {
         return null;
       }
 
@@ -439,7 +428,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $totalAmount = 0;
       $totalShipping = 0;
 
-      foreach ($returnedLineItems as $returnedItem) {
+      foreach ($pendingItems as ['lineItem' => $returnedItem, 'quantity' => $quantity]) {
         $originalLineItem = $order->getLineItems()->get($returnedItem->getOrderLineItemId());
         if (!$originalLineItem) {
           continue;
@@ -467,7 +456,6 @@ class TransactionSubscriber implements EventSubscriberInterface
         }
 
         $unitPrice = $returnedItem->getPrice()->getUnitPrice();
-        $quantity = $returnedItem->getQuantity();
         $lineTotal = $unitPrice * $quantity;
 
         $taxLineItem = [
@@ -527,7 +515,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest);
 
-      $this->persistRefundCalculation($order, $orderReturn->getId(), $this->toRefundCalculation($taxRequest, $taxResponse));
+      $this->persistRefundCalculation($order, $returnId, $transactionId, $this->toRefundCalculation($taxRequest, $taxResponse));
 
       if (isset($taxResponse['error'])) {
         $this->logOrderTransactionDiagnostic('taxjar_operation_failed', [
@@ -542,7 +530,8 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       return [
-        'return_id' => $orderReturn->getId(),
+        'return_id' => $returnId,
+        'transaction_id' => $transactionId,
         'tax_response' => $taxResponse,
         'line_items' => $taxLineItems,
         'total_amount' => $totalAmount,
@@ -571,14 +560,14 @@ class TransactionSubscriber implements EventSubscriberInterface
     return TaxJarCalculation::entry(TaxJarCalculation::STATUS_SUCCESS, null, TaxJarCalculation::SOURCE_API, false, $sandbox, $taxRequest, ['tax' => $taxResponse]);
   }
 
-  private function persistRefundCalculation(OrderEntity $order, string $returnId, array $calculation): void
+  private function persistRefundCalculation(OrderEntity $order, string $returnId, string $transactionId, array $calculation): void
   {
     try {
       $customFields = $order->getCustomFields() ?? [];
       $refundCalculations = \is_array($customFields[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD] ?? null)
         ? $customFields[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD]
         : [];
-      $refundCalculations[$returnId] = TaxJarCalculation::refund($returnId, $calculation);
+      $refundCalculations[$returnId] = TaxJarCalculation::refund($returnId, $calculation) + ['transactionId' => $transactionId];
 
       $this->orderRepository->update([[
         'id' => $order->getId(),
@@ -586,6 +575,10 @@ class TransactionSubscriber implements EventSubscriberInterface
           TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD => $refundCalculations,
         ],
       ]], $this->context);
+
+      $order->setCustomFields(array_merge($customFields, [
+        TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD => $refundCalculations,
+      ]));
     } catch (\Throwable $e) {
       $this->logTaxJarException('Partial Refund Tax Calculation Persist', $e, ['orderId' => $order->getId(), 'orderNumber' => $order->getOrderNumber()]);
     }
@@ -642,15 +635,13 @@ class TransactionSubscriber implements EventSubscriberInterface
    * Create partial refund transaction in TaxJar
    * @param OrderEntity $order
    * @param array $refundData
-   * @return void
+   * @return array|null
    */
-  private function createPartialRefundTransaction(OrderEntity $order, array $refundData): void
+  private function createPartialRefundTransaction(OrderEntity $order, array $refundData): ?array
   {
     try {
-      $existTransactionId = $this->getExistTransactionId($order->getId());
-      $originalTransactionId = $existTransactionId ?: $this->getTransactionId($order);
-      
-      $refundTransactionId = $originalTransactionId . '_partial_refund_' . ($refundData['return_id'] ?? 'unknown');
+      $originalTransactionId = $this->getOriginalTransactionId($order);
+      $refundTransactionId = $refundData['transaction_id'];
 
       $shippingOrderAddress = $this->getPrimaryDelivery($order)?->getShippingOrderAddress();
 
@@ -721,10 +712,382 @@ class TransactionSubscriber implements EventSubscriberInterface
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
 
+      return $response;
     } catch (\Throwable $e) {
       $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $order->getId()]);
+      return null;
+    }
+  }
+
+  private function isDuplicateTransactionResponse(array $response): bool
+  {
+    return ($response['status'] ?? null) === 422
+      && stripos((string) ($response['body'] ?? ''), 'already') !== false;
+  }
+
+  public function getRefundReport(string $orderId, Context $context): array
+  {
+    $this->context = $context;
+
+    if ($this->orderReturnRepository === null) {
+      return ['returnsAvailable' => false, 'canSend' => false, 'sendBlockedReason' => null, 'pendingQuantity' => 0, 'returns' => []];
+    }
+
+    $order = $this->getOrder($orderId);
+    if (!$order) {
+      throw new \RuntimeException(sprintf('Order %s not found.', $orderId));
+    }
+
+    $sendBlockedReason = $this->getSendBlockedReason($order, $this->getPaymentState($orderId));
+    $reportedRefunds = $this->getReportedRefunds($order);
+    $refundCalculations = $this->getRefundCalculations($order);
+    $pendingQuantity = 0;
+    $returns = [];
+
+    foreach ($this->loadOrderReturns($orderId) as $orderReturn) {
+      $returnId = $orderReturn->getId();
+      $reportedRefund = $reportedRefunds[$returnId] ?? null;
+      $transactions = $reportedRefund['transactions'] ?? (isset($reportedRefund['transactionId'])
+        ? [['transactionId' => $reportedRefund['transactionId'], 'reportedAt' => $reportedRefund['reportedAt'] ?? null]]
+        : (isset($refundCalculations[$returnId])
+          ? [['transactionId' => $this->getRefundTransactionId($order, $returnId, 1), 'reportedAt' => $refundCalculations[$returnId]['calculatedAt'] ?? null]]
+          : []));
+
+      $items = [];
+      foreach ($this->getPendingReturnItems($order, $orderReturn) as ['lineItem' => $returnLineItem, 'quantity' => $pending]) {
+        $orderLineItem = $order->getLineItems()?->get($returnLineItem->getOrderLineItemId());
+        $reported = $returnLineItem->getQuantity() - $pending;
+        $pendingQuantity += $pending;
+
+        $transactionIds = [];
+        foreach ($transactions as $transaction) {
+          $quantity = isset($transaction['lineItems']) ? ($transaction['lineItems'][$returnLineItem->getId()] ?? 0) : $reported;
+          if ($quantity > 0) {
+            $transactionIds[] = $transaction['transactionId'];
+          }
+        }
+
+        $items[] = [
+          'id' => $returnLineItem->getId(),
+          'label' => $orderLineItem?->getLabel(),
+          'productNumber' => $orderLineItem?->getPayload()['productNumber'] ?? null,
+          'quantity' => $returnLineItem->getQuantity(),
+          'reportedQuantity' => $reported,
+          'pendingQuantity' => $pending,
+          'transactionIds' => $transactionIds,
+        ];
+      }
+
+      $returnPending = array_sum(array_column($items, 'pendingQuantity'));
+
+      $returns[] = [
+        'id' => $returnId,
+        'returnNumber' => $orderReturn->getReturnNumber(),
+        'state' => $orderReturn->getState()?->getTechnicalName(),
+        'status' => $returnPending === 0 ? 'sent' : (array_sum(array_column($items, 'reportedQuantity')) === 0 ? 'pending' : 'partial'),
+        'verified' => \is_array($reportedRefund['lineItems'] ?? null) || ($reportedRefund === null && !isset($refundCalculations[$returnId])),
+        'items' => $items,
+        'transactions' => array_values($transactions),
+      ];
+    }
+
+    return [
+      'returnsAvailable' => true,
+      'canSend' => $sendBlockedReason === null,
+      'sendBlockedReason' => $sendBlockedReason,
+      'pendingQuantity' => $pendingQuantity,
+      'returns' => $returns,
+    ];
+  }
+
+  public function getRefundResponse(string $orderId, string $transactionId, Context $context): array
+  {
+    $criteria = new Criteria();
+    $criteria->addFilter(new EqualsFilter('orderId', $orderId));
+    $criteria->addFilter(new EqualsFilter('type', self::ORDER_REFUND_REQUEST_TYPE));
+    $criteria->addFilter(new ContainsFilter('request', '"transaction_id":"' . $transactionId . '"'));
+    $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::DESCENDING));
+    $criteria->setLimit(1);
+
+    $log = $this->taxJarLogRepository->search($criteria, $context)->first();
+
+    return [
+      'transactionId' => $transactionId,
+      'loggedAt' => $log?->getCreatedAt()?->format(\DATE_ATOM),
+      'response' => $log ? (json_decode($log->getResponse(), true) ?? $log->getResponse()) : null,
+    ];
+  }
+
+  public function sendPendingRefunds(string $orderId, Context $context): array
+  {
+    $this->context = $context;
+
+    if ($this->orderReturnRepository === null) {
+      throw new \RuntimeException('Return management (Shopware Commercial) is not active.');
+    }
+
+    $order = $this->getOrder($orderId);
+    if (!$order) {
+      throw new \RuntimeException(sprintf('Order %s not found.', $orderId));
+    }
+
+    $sendBlockedReason = $this->getSendBlockedReason($order, $this->getPaymentState($orderId));
+    if ($sendBlockedReason === 'fullRefund') {
+      throw new \RuntimeException('Refunds cannot be sent after a full refund, the order was already reported to TaxJar as fully refunded.');
+    }
+
+    if ($sendBlockedReason !== null) {
+      throw new \RuntimeException('Refunds can only be sent to TaxJar when the payment status is refunded (partially).');
+    }
+
+    if (!$this->hasTaxJarProvider($order)) {
+      return [];
+    }
+
+    $this->salesChannelId = $order->getSalesChannelId();
+
+    return $this->reportPendingRefunds($order);
+  }
+
+  private function reportPendingRefunds(OrderEntity $order): array
+  {
+    $results = [];
+
+    foreach ($this->loadOrderReturns($order->getId()) as $orderReturn) {
+      $returnId = $orderReturn->getId();
+      $result = ['returnId' => $returnId, 'returnNumber' => $orderReturn->getReturnNumber()];
+
+      if (!$this->verifyReportedRefund($order, $orderReturn)) {
+        $results[] = $result + ['status' => 'failed'];
+        continue;
+      }
+
+      $pendingItems = array_values(array_filter(
+        $this->getPendingReturnItems($order, $orderReturn),
+        static fn (array $item): bool => $item['quantity'] > 0
+      ));
+      if ($pendingItems === []) {
+        continue;
+      }
+
+      $transactionId = $this->getRefundTransactionId($order, $returnId, \count($this->getReportedRefunds($order)[$returnId]['transactions'] ?? []) + 1);
+      $refundData = $this->calculatePartialRefundTax($order, $returnId, $transactionId, $pendingItems);
+      $response = $refundData ? $this->createPartialRefundTransaction($order, $refundData) : null;
+
+      if (($response['success'] ?? false) === true) {
+        $quantities = [];
+        foreach ($pendingItems as ['lineItem' => $returnLineItem, 'quantity' => $quantity]) {
+          $quantities[$returnLineItem->getId()] = $quantity;
+        }
+
+        $this->markRefundReported($order, $returnId, $transactionId, $quantities);
+        $results[] = $result + ['status' => 'sent', 'transactionId' => $transactionId];
+      } elseif ($response !== null && $this->isDuplicateTransactionResponse($response) && $this->recordExistingRefund($order, $orderReturn, $transactionId)) {
+        $results[] = $result + ['status' => 'already_reported', 'transactionId' => $transactionId];
+      } else {
+        $results[] = $result + ['status' => 'failed'];
+      }
+    }
+
+    return $results;
+  }
+
+  private function verifyReportedRefund(OrderEntity $order, mixed $orderReturn): bool
+  {
+    $returnId = $orderReturn->getId();
+    $reportedRefund = $this->getReportedRefunds($order)[$returnId] ?? null;
+
+    if (\is_array($reportedRefund['lineItems'] ?? null)) {
+      return true;
+    }
+
+    if ($reportedRefund === null && !isset($this->getRefundCalculations($order)[$returnId])) {
+      return true;
+    }
+
+    return $this->recordExistingRefund($order, $orderReturn, $this->getRefundTransactionId($order, $returnId, 1));
+  }
+
+  private function recordExistingRefund(OrderEntity $order, mixed $orderReturn, string $transactionId): bool
+  {
+    $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds/' . rawurlencode($transactionId);
+    $response = $this->clientApiService->sendRequest('GET', $endpointUrl, $this->getHeaders(), []);
+
+    if (($response['status'] ?? null) === 404) {
+      $reportedRefunds = $this->getReportedRefunds($order);
+      $reportedRefunds[$orderReturn->getId()] = ['lineItems' => [], 'transactions' => []];
+      $this->saveReportedRefunds($order, $reportedRefunds);
+
+      return true;
+    }
+
+    $refund = json_decode((string) ($response['body'] ?? ''), true)['refund'] ?? null;
+
+    if (($response['success'] ?? false) !== true || !\is_array($refund)) {
+      $this->logOrderTransactionDiagnostic('taxjar_operation_failed', [
+        'operation' => 'Partial Refund Lookup',
+        'orderId' => $order->getId(),
+        'orderNumber' => $order->getOrderNumber(),
+        'success' => false,
+        'httpStatus' => $response['status'] ?? null,
+        'exceptionMessage' => $response['error'] ?? null,
+        'responseBody' => substr((string) ($response['body'] ?? ''), 0, 2000),
+      ], 'error');
+
+      return false;
+    }
+
+    $this->markRefundReported($order, $orderReturn->getId(), $transactionId, $this->mapRefundLineItems($order, $orderReturn, $refund['line_items'] ?? []));
+
+    return true;
+  }
+
+  private function getPendingReturnItems(OrderEntity $order, mixed $orderReturn): array
+  {
+    $returnId = $orderReturn->getId();
+    $reportedQuantities = $this->getReportedRefunds($order)[$returnId]['lineItems']
+      ?? $this->mapRefundLineItems($order, $orderReturn, $this->getRefundCalculations($order)[$returnId]['request']['line_items'] ?? []);
+    $pendingItems = [];
+
+    foreach ($orderReturn->getLineItems() ?? [] as $returnLineItem) {
+      $reported = (int) ($reportedQuantities[$returnLineItem->getId()] ?? 0);
+      $pendingItems[] = ['lineItem' => $returnLineItem, 'quantity' => max(0, $returnLineItem->getQuantity() - $reported)];
+    }
+
+    return $pendingItems;
+  }
+
+  private function mapRefundLineItems(OrderEntity $order, mixed $orderReturn, array $refundLineItems): array
+  {
+    $remaining = [];
+    foreach ($refundLineItems as $refundLineItem) {
+      $productNumber = (string) ($refundLineItem['product_identifier'] ?? '');
+      $remaining[$productNumber] = ($remaining[$productNumber] ?? 0) + abs((int) ($refundLineItem['quantity'] ?? 0));
+    }
+
+    $quantities = [];
+    foreach ($orderReturn->getLineItems() ?? [] as $returnLineItem) {
+      $orderLineItem = $order->getLineItems()?->get($returnLineItem->getOrderLineItemId());
+      $productNumber = (string) ($orderLineItem?->getPayload()['productNumber'] ?? '');
+      $quantity = min($returnLineItem->getQuantity(), $remaining[$productNumber] ?? 0);
+
+      if ($quantity > 0) {
+        $quantities[$returnLineItem->getId()] = $quantity;
+        $remaining[$productNumber] -= $quantity;
+      }
+    }
+
+    return $quantities;
+  }
+
+  private function getRefundTransactionId(OrderEntity $order, string $returnId, int $sequence): string
+  {
+    $refundTransactionId = $this->getOriginalTransactionId($order) . '_partial_refund_' . $returnId;
+
+    return $sequence > 1 ? $refundTransactionId . '_' . $sequence : $refundTransactionId;
+  }
+
+  private function getOriginalTransactionId(OrderEntity $order): string
+  {
+    return $this->getExistTransactionId($order->getId()) ?: $this->getTransactionId($order);
+  }
+
+  private function getSendBlockedReason(OrderEntity $order, ?string $paymentState): ?string
+  {
+    if ($paymentState === OrderTransactionStates::STATE_REFUNDED) {
+      return 'fullRefund';
+    }
+
+    if ($paymentState === OrderTransactionStates::STATE_PARTIALLY_REFUNDED || $this->isManualRefundReporting($order)) {
+      return null;
+    }
+
+    return 'paymentState';
+  }
+
+  private function isManualRefundReporting(OrderEntity $order): bool
+  {
+    return $this->systemConfigService->get('solu1TaxJar.setting.partialRefundReporting', $order->getSalesChannelId()) === self::PARTIAL_REFUND_REPORTING_MANUAL;
+  }
+
+  private function getPaymentState(string $orderId): ?string
+  {
+    $criteria = new Criteria([$orderId]);
+    $criteria->getAssociation('transactions')
+      ->addSorting(new FieldSorting('createdAt', FieldSorting::DESCENDING))
+      ->setLimit(1);
+    $criteria->addAssociation('transactions.stateMachineState');
+
+    $order = $this->orderRepository->search($criteria, $this->context)->get($orderId);
+
+    return $order?->getTransactions()?->first()?->getStateMachineState()?->getTechnicalName();
+  }
+
+  private function loadOrderReturns(string $orderId): iterable
+  {
+    $criteria = new Criteria();
+    $criteria->addFilter(new EqualsFilter('orderId', $orderId));
+    $criteria->addAssociation('lineItems');
+    $criteria->addAssociation('state');
+    $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::ASCENDING));
+
+    return $this->orderReturnRepository->search($criteria, $this->context)->getEntities();
+  }
+
+  private function getRefundCalculations(OrderEntity $order): array
+  {
+    $refundCalculations = ($order->getCustomFields() ?? [])[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD] ?? [];
+
+    return \is_array($refundCalculations) ? $refundCalculations : [];
+  }
+
+  private function getReportedRefunds(OrderEntity $order): array
+  {
+    $reportedRefunds = ($order->getCustomFields() ?? [])[TaxJarCalculation::ORDER_REPORTED_REFUNDS_CUSTOM_FIELD] ?? [];
+
+    return \is_array($reportedRefunds) ? $reportedRefunds : [];
+  }
+
+  private function markRefundReported(OrderEntity $order, string $returnId, string $transactionId, array $quantities): void
+  {
+    $reportedRefunds = $this->getReportedRefunds($order);
+    $reportedRefund = $reportedRefunds[$returnId] ?? [];
+    $transactions = \is_array($reportedRefund['transactions'] ?? null) ? $reportedRefund['transactions'] : [];
+
+    if (\in_array($transactionId, array_column($transactions, 'transactionId'), true)) {
       return;
     }
+
+    $lineItems = \is_array($reportedRefund['lineItems'] ?? null) ? $reportedRefund['lineItems'] : [];
+    foreach ($quantities as $returnLineItemId => $quantity) {
+      $lineItems[$returnLineItemId] = ($lineItems[$returnLineItemId] ?? 0) + $quantity;
+    }
+
+    $reportedAt = (new \DateTimeImmutable())->format(\DATE_ATOM);
+    $transactions[] = ['transactionId' => $transactionId, 'reportedAt' => $reportedAt, 'lineItems' => $quantities];
+
+    $reportedRefunds[$returnId] = [
+      'transactionId' => $reportedRefund['transactionId'] ?? $transactionId,
+      'reportedAt' => $reportedRefund['reportedAt'] ?? $reportedAt,
+      'lineItems' => $lineItems,
+      'transactions' => $transactions,
+    ];
+
+    $this->saveReportedRefunds($order, $reportedRefunds);
+  }
+
+  private function saveReportedRefunds(OrderEntity $order, array $reportedRefunds): void
+  {
+    $this->orderRepository->update([[
+      'id' => $order->getId(),
+      'customFields' => [
+        TaxJarCalculation::ORDER_REPORTED_REFUNDS_CUSTOM_FIELD => $reportedRefunds,
+      ],
+    ]], $this->context);
+
+    $order->setCustomFields(array_merge($order->getCustomFields() ?? [], [
+      TaxJarCalculation::ORDER_REPORTED_REFUNDS_CUSTOM_FIELD => $reportedRefunds,
+    ]));
   }
 
   /**

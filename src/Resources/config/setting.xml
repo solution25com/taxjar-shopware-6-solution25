@@ -90,6 +90,30 @@
             </helpText>
             <required>true</required>
         </input-field>
+        <input-field type="single-select">
+            <name>partialRefundReporting</name>
+            <options>
+                <option>
+                    <id>paymentStatus</id>
+                    <name>On payment status change</name>
+                    <name lang="de-DE">Bei Änderung des Zahlungsstatus</name>
+                </option>
+                <option>
+                    <id>manual</id>
+                    <name>Manually from the TaxJar refunds card</name>
+                    <name lang="de-DE">Manuell über die Karte TaxJar-Erstattungen</name>
+                </option>
+            </options>
+            <defaultValue>paymentStatus</defaultValue>
+            <label>Send partial refunds to TaxJar</label>
+            <label lang="de-DE">Teilerstattungen an TaxJar senden</label>
+            <helpText>
+                On payment status change: returns are sent automatically when the payment status changes to Refunded (partially). Manually: returns are only sent with the "Send pending refunds to TaxJar" button on the order. In manual mode the button can be used at any payment status except Refunded.
+            </helpText>
+            <helpText lang="de-DE">
+                Bei Änderung des Zahlungsstatus: Retouren werden automatisch gesendet, sobald der Zahlungsstatus auf Teilweise erstattet wechselt. Manuell: Retouren werden nur über die Schaltfläche "Ausstehende Erstattungen an TaxJar senden" in der Bestellung gesendet. Im manuellen Modus kann die Schaltfläche bei jedem Zahlungsstatus außer Erstattet verwendet werden.
+            </helpText>
+        </input-field>
         <input-field type="text">
             <name>shippingFromStreet</name>
             <label>Shipping From Street</label>

@@ -1,0 +1,146 @@
+<!-- eslint-disable-next-line sw-deprecation-rules/no-twigjs-blocks -->
+{% block solu1_taxjar_refunds_card %}
+<mt-card
+    v-if="isVisible"
+    class="solu1-taxjar-refunds-card"
+    position-identifier="solu1-taxjar-refunds-card"
+    :title="$t('solu1-taxjar-refunds.card.title')"
+    :is-loading="isLoading"
+>
+    <p class="solu1-taxjar-refunds-card__description">
+        {{ $t('solu1-taxjar-refunds.card.description') }}
+    </p>
+
+    <div
+        v-for="orderReturn in report.returns"
+        :key="orderReturn.id"
+        class="solu1-taxjar-refunds-card__return"
+    >
+        <div class="solu1-taxjar-refunds-card__return-header">
+            <strong>{{ $t('solu1-taxjar-refunds.card.returnTitle', { number: orderReturn.returnNumber }) }}</strong>
+            <sw-label
+                :variant="statusVariant(orderReturn.status)"
+                appearance="pill"
+                size="small"
+            >
+                {{ $t(`solu1-taxjar-refunds.status.${orderReturn.status}`) }}
+            </sw-label>
+        </div>
+
+        <table class="solu1-taxjar-refunds-card__items">
+            <thead>
+                <tr>
+                    <th>{{ $t('solu1-taxjar-refunds.card.columnProduct') }}</th>
+                    <th>{{ $t('solu1-taxjar-refunds.card.columnReturned') }}</th>
+                    <th>{{ $t('solu1-taxjar-refunds.card.columnSent') }}</th>
+                    <th>{{ $t('solu1-taxjar-refunds.card.columnPending') }}</th>
+                    <th>{{ $t('solu1-taxjar-refunds.card.columnResponse') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr
+                    v-for="item in orderReturn.items"
+                    :key="item.id"
+                >
+                    <td>
+                        {{ item.label }}
+                        <span
+                            v-if="item.productNumber"
+                            class="solu1-taxjar-refunds-card__product-number"
+                        >{{ item.productNumber }}</span>
+                    </td>
+                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.reportedQuantity }}</td>
+                    <td :class="{ 'is--pending': item.pendingQuantity > 0 }">{{ item.pendingQuantity }}</td>
+                    <td>
+                        <mt-button
+                            variant="secondary"
+                            v-if="item.transactionIds.length > 0"
+                            size="x-small"
+                            @click="openResponseModal(item)"
+                        >
+                            {{ $t('solu1-taxjar-refunds.card.viewButton') }}
+                        </mt-button>
+                        <span v-else>–</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p
+            v-if="!orderReturn.verified"
+            class="solu1-taxjar-refunds-card__hint"
+        >
+            {{ $t('solu1-taxjar-refunds.card.unverified') }}
+        </p>
+
+        <ul
+            v-if="orderReturn.transactions.length > 0"
+            class="solu1-taxjar-refunds-card__transactions"
+        >
+            <li
+                v-for="transaction in orderReturn.transactions"
+                :key="transaction.transactionId"
+            >
+                {{ transaction.transactionId }}
+                <span v-if="transaction.reportedAt">· {{ formatDate(transaction.reportedAt) }}</span>
+            </li>
+        </ul>
+    </div>
+
+    <sw-modal
+        v-if="showResponseModal"
+        :title="$t('solu1-taxjar-refunds.card.responseModalTitle')"
+        variant="large"
+        @modal-close="showResponseModal = false"
+    >
+        <sw-loader v-if="isResponseLoading" />
+        <pre
+            v-else
+            class="solu1-taxjar-refunds-card__response-content"
+        >{{ responseModalContent }}</pre>
+
+        <template #modal-footer>
+            <mt-button
+                variant="primary"
+                size="small"
+                @click="copyResponse"
+            >
+                {{ $t('solu1-taxjar-refunds.card.copyButton') }}
+            </mt-button>
+            <mt-button
+                variant="secondary"
+                size="small"
+                @click="showResponseModal = false"
+            >
+                {{ $t('solu1-taxjar-refunds.card.closeButton') }}
+            </mt-button>
+        </template>
+    </sw-modal>
+
+    <div class="solu1-taxjar-refunds-card__footer">
+        <mt-button
+            variant="primary"
+            size="small"
+            :disabled="!canSend"
+            :is-loading="isSending"
+            @click="sendRefunds"
+        >
+            {{ $t('solu1-taxjar-refunds.card.sendButton') }}
+        </mt-button>
+
+        <span
+            v-if="!report.canSend"
+            class="solu1-taxjar-refunds-card__hint"
+        >
+            {{ $t(`solu1-taxjar-refunds.card.sendBlocked.${report.sendBlockedReason}`) }}
+        </span>
+        <span
+            v-else-if="report.pendingQuantity === 0"
+            class="solu1-taxjar-refunds-card__hint"
+        >
+            {{ $t('solu1-taxjar-refunds.card.nothingPending') }}
+        </span>
+    </div>
+</mt-card>
+{% endblock %}

@@ -6,5 +6,6 @@
     <import resource="../../Storefront/Controller/**/*Controller.php" type="attribute" />
     <import resource="../../Core/Api/Nexus/*Controller.php" type="attribute" />
     <import resource="../../Core/Api/Nexus/**/*Controller.php" type="attribute" />
+    <import resource="../../Core/Api/Refund/*Controller.php" type="attribute" />
 
 </routes>

@@ -1,0 +1,38 @@
+{
+    "solu1-taxjar-refunds": {
+        "card": {
+            "title": "TaxJar-Erstattungen",
+            "description": "Retournierte Artikel und die bereits als Erstattung an TaxJar gemeldeten Mengen.",
+            "returnTitle": "Retoure #{number}",
+            "columnProduct": "Produkt",
+            "columnReturned": "Retourniert",
+            "columnSent": "An TaxJar gesendet",
+            "columnPending": "Ausstehend",
+            "columnResponse": "Antwort",
+            "viewButton": "Anzeigen",
+            "unverified": "Gesendet, bevor Mengen erfasst wurden. Die angezeigten Mengen sind geschätzt und werden beim Senden mit TaxJar abgeglichen.",
+            "responseUnavailable": "Die Antwort ist nicht mehr im TaxJar-Log vorhanden (durch die Log-Bereinigung entfernt).",
+            "responseModalTitle": "Antwort",
+            "copyButton": "In Zwischenablage kopieren",
+            "closeButton": "Schließen",
+            "copySuccess": "In die Zwischenablage kopiert.",
+            "sendButton": "Ausstehende Erstattungen an TaxJar senden",
+            "sendBlocked": {
+                "paymentState": "Verfügbar, wenn der Zahlungsstatus Teilweise erstattet ist.",
+                "fullRefund": "Nach einer vollständigen Erstattung nicht verfügbar. Die Bestellung wurde bereits als vollständig erstattet an TaxJar gemeldet."
+            },
+            "nothingPending": "Alle retournierten Artikel sind an TaxJar gemeldet."
+        },
+        "status": {
+            "sent": "Gesendet",
+            "partial": "Teilweise gesendet",
+            "pending": "Nicht gesendet"
+        },
+        "notification": {
+            "sendSuccess": "Ausstehende Erstattungen wurden an TaxJar gesendet.",
+            "nothingSent": "Nichts zu senden. Alle retournierten Artikel sind bereits an TaxJar gemeldet.",
+            "sendFailed": "Erstattungen für Retoure {returns} konnten nicht an TaxJar gesendet werden. Bitte das TaxJar-Log prüfen.",
+            "sendError": "Erstattungen konnten nicht an TaxJar gesendet werden."
+        }
+    }
+}

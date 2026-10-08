@@ -1,0 +1,38 @@
+{
+    "solu1-taxjar-refunds": {
+        "card": {
+            "title": "TaxJar refunds",
+            "description": "Returned items and the quantities already reported to TaxJar as refunds.",
+            "returnTitle": "Return #{number}",
+            "columnProduct": "Product",
+            "columnReturned": "Returned",
+            "columnSent": "Sent to TaxJar",
+            "columnPending": "Pending",
+            "columnResponse": "Response",
+            "viewButton": "View",
+            "unverified": "Sent before quantities were tracked. The quantities shown are estimated and are verified with TaxJar when refunds are sent.",
+            "responseUnavailable": "The response is no longer in the TaxJar log (removed by log retention).",
+            "responseModalTitle": "Response",
+            "copyButton": "Copy to Clipboard",
+            "closeButton": "Close",
+            "copySuccess": "Copied to clipboard.",
+            "sendButton": "Send pending refunds to TaxJar",
+            "sendBlocked": {
+                "paymentState": "Available when the payment status is Refunded (partially).",
+                "fullRefund": "Not available after a full refund. The order was already reported to TaxJar as fully refunded."
+            },
+            "nothingPending": "All returned items are reported to TaxJar."
+        },
+        "status": {
+            "sent": "Sent",
+            "partial": "Partly sent",
+            "pending": "Not sent"
+        },
+        "notification": {
+            "sendSuccess": "Pending refunds were sent to TaxJar.",
+            "nothingSent": "Nothing to send. All returned items are already reported to TaxJar.",
+            "sendFailed": "Could not send refunds for return {returns} to TaxJar. Check the TaxJar log.",
+            "sendError": "Refunds could not be sent to TaxJar."
+        }
+    }
+}

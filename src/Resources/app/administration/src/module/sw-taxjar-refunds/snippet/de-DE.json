@@ -17,9 +17,11 @@
             "closeButton": "Schließen",
             "copySuccess": "In die Zwischenablage kopiert.",
             "sendButton": "Ausstehende Erstattungen an TaxJar senden",
+            "sendReturnButton": "Retoure an TaxJar senden",
             "sendBlocked": {
                 "paymentState": "Verfügbar, wenn der Zahlungsstatus Teilweise erstattet ist.",
-                "fullRefund": "Nach einer vollständigen Erstattung nicht verfügbar. Die Bestellung wurde bereits als vollständig erstattet an TaxJar gemeldet."
+                "fullRefund": "Nach einer vollständigen Erstattung nicht verfügbar. Die Bestellung wurde bereits als vollständig erstattet an TaxJar gemeldet.",
+                "returnState": "Kann an TaxJar gesendet werden, sobald der Retourenstatus Abgeschlossen ist."
             },
             "nothingPending": "Alle retournierten Artikel sind an TaxJar gemeldet."
         },
@@ -32,7 +34,9 @@
             "sendSuccess": "Ausstehende Erstattungen wurden an TaxJar gesendet.",
             "nothingSent": "Nichts zu senden. Alle retournierten Artikel sind bereits an TaxJar gemeldet.",
             "sendFailed": "Erstattungen für Retoure {returns} konnten nicht an TaxJar gesendet werden. Bitte das TaxJar-Log prüfen.",
-            "sendError": "Erstattungen konnten nicht an TaxJar gesendet werden."
+            "sendError": "Erstattungen konnten nicht an TaxJar gesendet werden.",
+            "returnSent": "Retoure #{number} ist an TaxJar gemeldet.",
+            "returnNothingSent": "Für Retoure #{number} gibt es nichts zu senden. Ihre Artikel sind bereits an TaxJar gemeldet oder storniert."
         }
     }
 }

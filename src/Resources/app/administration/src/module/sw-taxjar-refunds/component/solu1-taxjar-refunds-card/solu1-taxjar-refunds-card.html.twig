@@ -25,6 +25,16 @@
             >
                 {{ $t(`solu1-taxjar-refunds.status.${orderReturn.status}`) }}
             </sw-label>
+            <sw-button
+                v-if="orderReturn.sendableQuantity > 0"
+                class="solu1-taxjar-refunds-card__send-return"
+                size="x-small"
+                :disabled="!canSendReturn(orderReturn)"
+                :is-loading="sendingReturnId === orderReturn.id"
+                @click="sendReturn(orderReturn)"
+            >
+                {{ $t('solu1-taxjar-refunds.card.sendReturnButton') }}
+            </sw-button>
         </div>
 
         <table class="solu1-taxjar-refunds-card__items">
@@ -71,6 +81,13 @@
             class="solu1-taxjar-refunds-card__hint"
         >
             {{ $t('solu1-taxjar-refunds.card.unverified') }}
+        </p>
+
+        <p
+            v-if="orderReturn.sendableQuantity > 0 && orderReturn.sendBlockedReason === 'returnState'"
+            class="solu1-taxjar-refunds-card__hint"
+        >
+            {{ $t('solu1-taxjar-refunds.card.sendBlocked.returnState') }}
         </p>
 
         <ul

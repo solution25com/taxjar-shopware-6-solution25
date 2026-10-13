@@ -47,6 +47,7 @@
             <argument type="service" id="product.repository" />
             <argument type="service" id="solu1_taxjar.cache.tax_calculation"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="solu1TaxJar\Service\ApiCallEventDispatcher"/>
             <tag name="solu1.tax_calculator"/>
             <tag name="kernel.reset" method="reset"/>
         </service>
@@ -72,6 +73,7 @@
             <argument type="service" id="customer.repository"/>
             <argument type="service" id="http_client"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="solu1TaxJar\Service\ApiCallEventDispatcher"/>
             <tag name="kernel.event_subscriber"/>
         </service>
 
@@ -86,6 +88,7 @@
             <argument type="service" id="solu1TaxJar\Service\ClientApiService"/>
             <argument type="service" id="order_return.repository" on-invalid="null"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="solu1TaxJar\Service\ApiCallEventDispatcher"/>
         </service>
         <service id="solu1TaxJar\Service\ScheduledTask\CleanLogTask">
             <tag name="shopware.scheduled.task" />
@@ -102,6 +105,11 @@
         </service>
 
         <service id="solu1TaxJar\Service\ClientApiService" public="true">
+            <argument type="service" id="logger"/>
+        </service>
+
+        <service id="solu1TaxJar\Service\ApiCallEventDispatcher">
+            <argument type="service" id="event_dispatcher"/>
             <argument type="service" id="logger"/>
         </service>
 
@@ -136,6 +144,7 @@
         </service>
 
         <service id="solu1TaxJar\Subscriber\OrderTaxJarCalculationSubscriber">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <tag name="kernel.event_subscriber"/>
         </service>
 

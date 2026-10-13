@@ -2,8 +2,8 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
     <card>
-        <title>Tax Jar Settings</title>
-        <title lang="de-DE">#solu1TaxJarJar# Einstellungen</title>
+        <title>TaxJar Settings</title>
+        <title lang="de-DE">TaxJar-Einstellungen</title>
         <input-field type="bool">
             <name>active</name>
             <label>Active</label>
@@ -58,7 +58,6 @@
             <allowEmpty/>
             <defaultValue>28800</defaultValue>
         </input-field>
-        <title>Enable or Disable Tax Calculation for Gift Cards</title>
         <input-field type="bool">
             <name>giftcardsExemptTax</name>
             <label>Include Gift Cards for Tax Calculation</label>
@@ -103,15 +102,20 @@
                     <name>Manually from the TaxJar refunds card</name>
                     <name lang="de-DE">Manuell über die Karte TaxJar-Erstattungen</name>
                 </option>
+                <option>
+                    <id>returnCompleted</id>
+                    <name>When the return status changes to Done</name>
+                    <name lang="de-DE">Wenn der Retourenstatus auf Abgeschlossen wechselt</name>
+                </option>
             </options>
             <defaultValue>paymentStatus</defaultValue>
             <label>Send partial refunds to TaxJar</label>
             <label lang="de-DE">Teilerstattungen an TaxJar senden</label>
             <helpText>
-                On payment status change: returns are sent automatically when the payment status changes to Refunded (partially). Manually: returns are only sent with the "Send pending refunds to TaxJar" button on the order. In manual mode the button can be used at any payment status except Refunded.
+                On payment status change: returns are sent automatically when the payment status changes to Refunded (partially). Manually: returns are only sent with the "Send pending refunds to TaxJar" button on the order. In manual mode the button can be used at any payment status except Refunded. When the return status changes to Done: each return is sent on its own when it is completed, without its cancelled items. In every mode a completed return can also be sent with its own button on the TaxJar refunds card or with the Admin API action POST /api/_action/taxjar/return/{returnId}/refund.
             </helpText>
             <helpText lang="de-DE">
-                Bei Änderung des Zahlungsstatus: Retouren werden automatisch gesendet, sobald der Zahlungsstatus auf Teilweise erstattet wechselt. Manuell: Retouren werden nur über die Schaltfläche "Ausstehende Erstattungen an TaxJar senden" in der Bestellung gesendet. Im manuellen Modus kann die Schaltfläche bei jedem Zahlungsstatus außer Erstattet verwendet werden.
+                Bei Änderung des Zahlungsstatus: Retouren werden automatisch gesendet, sobald der Zahlungsstatus auf Teilweise erstattet wechselt. Manuell: Retouren werden nur über die Schaltfläche "Ausstehende Erstattungen an TaxJar senden" in der Bestellung gesendet. Im manuellen Modus kann die Schaltfläche bei jedem Zahlungsstatus außer Erstattet verwendet werden. Wenn der Retourenstatus auf Abgeschlossen wechselt: Jede Retoure wird einzeln gesendet, sobald sie abgeschlossen ist, ohne ihre stornierten Artikel. In jedem Modus kann eine abgeschlossene Retoure auch über ihre eigene Schaltfläche in der Karte TaxJar-Erstattungen oder über die Admin-API-Aktion POST /api/_action/taxjar/return/{returnId}/refund gesendet werden.
             </helpText>
         </input-field>
         <input-field type="text">
@@ -325,6 +329,7 @@
 
     <card>
         <title>Rule-based behavior</title>
+        <title lang="de-DE">Regelbasiertes Verhalten</title>
         <component name="sw-entity-multi-id-select">
             <name>bypassTaxJarRuleIds</name>
             <entity>rule</entity>
@@ -347,6 +352,7 @@
 
     <card>
         <title>Customer Group to exempt</title>
+        <title lang="de-DE">Steuerbefreite Kundengruppe</title>
         <component name="sw-entity-multi-id-select">
             <name>exemptCustomerGroup</name>
             <entity>customer_group</entity>
@@ -357,6 +363,7 @@
 
     <card>
         <title>TaxJar Customer Configuration</title>
+        <title lang="de-DE">TaxJar-Kundenkonfiguration</title>
         <input-field type="checkbox">
             <name>taxjarCustomers</name>
             <label>Customers Registered in TaxJar (Using Shopware Customer ID)</label>
@@ -367,6 +374,47 @@
                 If these custom fields are empty, no customer Id will be sent to TaxJar for that customer.
             </helpText>
             <defaultValue>false</defaultValue>
+        </input-field>
+    </card>
+
+    <card>
+        <title>Extra configuration</title>
+        <title lang="de-DE">Zusätzliche Konfiguration</title>
+        <input-field type="single-select">
+            <name>partialRefundTaxSource</name>
+            <options>
+                <option>
+                    <id>taxjarCalculation</id>
+                    <name>Calculate with TaxJar (recommended by TaxJar)</name>
+                    <name lang="de-DE">Mit TaxJar berechnen (von TaxJar empfohlen)</name>
+                </option>
+                <option>
+                    <id>checkoutTax</id>
+                    <name>Use the tax charged at checkout</name>
+                    <name lang="de-DE">Beim Checkout berechnete Steuer verwenden</name>
+                </option>
+            </options>
+            <defaultValue>taxjarCalculation</defaultValue>
+            <label>Tax on partial refunds</label>
+            <label lang="de-DE">Steuer bei Teilerstattungen</label>
+            <helpText>
+                Calculate with TaxJar: the tax of the returned items is calculated with TaxJar (/v2/taxes) when the refund is sent. This is the way TaxJar recommends, because tax rates and rules can change between checkout and the refund. Use the tax charged at checkout: no extra TaxJar request. Each returned item gets its share of the tax charged on its order line at checkout, by returned quantity and by refund amount when less than the full price is refunded, so the refunds add up to exactly the tax that was collected. In both modes, orders of exempt customers refund no tax, as in the order transaction.
+            </helpText>
+            <helpText lang="de-DE">
+                Mit TaxJar berechnen: Die Steuer der retournierten Artikel wird beim Senden der Erstattung mit TaxJar (/v2/taxes) berechnet. Das ist der von TaxJar empfohlene Weg, da sich Steuersätze und Steuerregeln zwischen Checkout und Erstattung ändern können. Beim Checkout berechnete Steuer verwenden: keine zusätzliche Anfrage an TaxJar. Jeder retournierte Artikel erhält seinen Anteil an der Steuer, die beim Checkout für seine Bestellposition berechnet wurde, nach retournierter Menge und nach Erstattungsbetrag, wenn weniger als der volle Preis erstattet wird. So ergeben die Erstattungen genau die erhobene Steuer. In beiden Modi erstatten Bestellungen steuerbefreiter Kunden keine Steuer, wie in der Bestelltransaktion.
+            </helpText>
+        </input-field>
+        <input-field type="bool">
+            <name>storeCalculationInOrder</name>
+            <label>Store TaxJar calculation data on the order</label>
+            <label lang="de-DE">TaxJar-Berechnungsdaten an der Bestellung speichern</label>
+            <helpText>
+                Saves the full TaxJar calculation in the order custom fields taxjar_calculation and taxjar_refund_calculations. Disable it when another extension stores this data. The taxjar_calculation cart extension and the TaxJar API call event stay available. Tax amounts and TaxJar reporting are not affected.
+            </helpText>
+            <helpText lang="de-DE">
+                Speichert die vollständige TaxJar-Berechnung in den Zusatzfeldern taxjar_calculation und taxjar_refund_calculations der Bestellung. Deaktivieren Sie die Option, wenn eine andere Erweiterung diese Daten speichert. Die Warenkorb-Erweiterung taxjar_calculation und das TaxJar-API-Ereignis bleiben verfügbar. Steuerbeträge und die Übermittlung an TaxJar sind nicht betroffen.
+            </helpText>
+            <defaultValue>1</defaultValue>
         </input-field>
     </card>
 </config>

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.2.0] - 2026-10-13
+
+### This release includes
+- added the `TaxJarApiCallEvent`, dispatched after every TaxJar API request made for a cart, an order, a refund, a return or a customer, with the operation, endpoint, request payload, response status and body, duration, sandbox flag and the related order, return and customer ids, so other extensions can store TaxJar requests and responses wherever they need, for example in their own table
+- the event never contains the API token, and an exception thrown by a listener is logged without affecting the tax calculation or the TaxJar transaction
+- added the setting "Store TaxJar calculation data on the order" (enabled by default, per sales channel). When disabled, the `taxjar_calculation` and `taxjar_refund_calculations` order custom fields are no longer written, and `taxjar_calculation` is set to `null` when an order is recalculated. The `taxjar_calculation` cart extension and the event stay available
+- fixed a full refund after partial refunds reporting the whole order to TaxJar again. It now reports only what is left: the plugin subtracts the amount, shipping, sales tax and line item quantities of the partial refunds already reported, so the order nets to zero in TaxJar. Each partial refund is kept on the order (`taxjar_reported_refunds`) as TaxJar returned it when accepting it. Partial refunds sent by earlier versions are looked up in TaxJar, except in sandbox mode, where TaxJar answers every lookup with the same sample refund. When nothing is left, no refund is sent. When a partial refund cannot be read from TaxJar, the full refund is not sent and an error is logged, because sending the whole order would count the partial refunds twice
+- added reporting of one return by its return id. The Admin API action `POST /api/_action/taxjar/return/{returnId}/refund` and the new "Send return to TaxJar" button on each return in the TaxJar refunds card report a single return. Only a return with the status Done is sent, its cancelled items are left out, and calling it again for a reported return sends nothing. The action answers `502` when TaxJar does not accept the refund, so the caller can retry
+- added the option "When the return status changes to Done" to the setting "Send partial refunds to TaxJar". In this mode each return is reported on its own when it is completed, and the payment status Refunded (partially) no longer sends returns
+- added the setting "Tax on partial refunds" (per sales channel). The default, "Calculate with TaxJar", keeps calculating the tax of returned items with TaxJar (`/v2/taxes`), the way TaxJar recommends because tax rates and rules can change between checkout and the refund. "Use the tax charged at checkout" reports each returned item's share of the tax charged on its order line at checkout instead, without an extra TaxJar request: by returned quantity, rounded so that all returns of a line add up to exactly the tax collected, and reduced when less than the full price is refunded. In this mode `taxjar_refund_calculations` is not written
+- fixed partial refunds of exempt orders reporting sales tax that was never collected. The order transaction of an exempt customer or customer group reports no tax, but the refund asked `/v2/taxes` without the exemption and reported normal tax. Refunds of exempt orders now report no tax and carry the order's `exemption_type`, in both "Tax on partial refunds" modes
+- fixed TaxJar lookups (`GET /v2/transactions/refunds/{id}`) always failing with `403`: the request carried an empty JSON body, which TaxJar's CloudFront rejects for GET requests. This also affected the check for refunds already reported by earlier versions and the recovery after a duplicate refund
+- fixed the `source` of the `taxjar_calculation` data reporting `cache` when the response had just been fetched from TaxJar, for example right after clearing a customer's TaxJar cache. Shopware calculates a cart several times per request, and the passes after the TaxJar call read the response back from the cache. They now report `api`, as on Shopware 6.6 (1.4.0)
+- tax amounts charged on carts and orders are unchanged. Apart from the full refund above and the new options, the data sent to TaxJar is unchanged
+
+
 ## [v2.1.1] - 2026-10-08
 
 ### This release includes

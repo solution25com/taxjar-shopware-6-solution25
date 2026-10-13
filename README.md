@@ -20,9 +20,10 @@ Merchants can define custom tax rules, prioritize their execution order, and aut
 * Calculate taxes on order updates
 * Compatible with Shopware commercial return management
 * Recalculate tax on partial refunds and returns
+* Report each completed return to TaxJar by its return id, from the order or through the Admin API
 * Calculate tax on Admin orders
 * Two flows for commit transactions when **payment status changes** or **shipping status changes**
-* Fully refund tax when payment status changes to refunded
+* Fully refund tax when payment status changes to refunded, minus the partial refunds already reported
 * Supported modes: **Production Mode** and **Sandbox Mode**
 * Enable/Disable Debug Mode
 * Include/exclude gift cards in tax calculation
@@ -161,6 +162,61 @@ composer require solution25/tax-jar
 
 ---
 
+## Reporting Returns to TaxJar
+
+With Shopware Commercial return management, returns are reported to TaxJar as refund transactions. Each return is reported under its own transaction id, `{order transaction id}_partial_refund_{returnId}`, with `_2`, `_3` and so on for items added to the return after it was first reported. The `taxjar_reported_refunds` order custom field records what was sent, so nothing is reported twice.
+
+The setting **Send partial refunds to TaxJar** decides when this happens:
+
+| Option | Returns are sent |
+| --- | --- |
+| On payment status change (default) | When the payment status changes to Refunded (partially): every return of the order that is not reported yet. |
+| Manually from the TaxJar refunds card | Only from the TaxJar refunds card on the order. |
+| When the return status changes to Done | Each return on its own, when its status changes to Done, without its cancelled items. |
+
+### Tax on partial refunds
+
+The setting **Tax on partial refunds**, in the **Extra configuration** card at the end of the plugin settings, decides where the tax of a returned item comes from:
+
+| Option | Tax reported for the returned items |
+| --- | --- |
+| Calculate with TaxJar (default, recommended by TaxJar) | The plugin calculates it with TaxJar (`POST /v2/taxes`) when the refund is sent, as TaxJar's article [Handling refunds with API](https://support.taxjar.com/article/351-handling-refunds-with-api) suggests. The calculation follows TaxJar's current rates and rules, which can change between checkout and the refund. It is stored in `taxjar_refund_calculations`. |
+| Use the tax charged at checkout | No extra TaxJar request. Each returned item gets its share of the tax charged on its order line at checkout, which the order transaction reported as the line's `sales_tax`: by returned quantity, rounded so that all returns of a line add up to exactly that tax, and reduced by the same ratio when less than the full price is refunded (the difference is sent as the line's `discount`). Shipping tax is pro-rated the same way when shipping is part of the tax calculation. Nothing is stored in `taxjar_refund_calculations`, because nothing is calculated. |
+
+In both modes, a refund of an exempt order (customer exemption or exempt customer group) reports no sales tax and carries the order's `exemption_type`, as the order transaction did. No `/v2/taxes` request is made for it, because that request doesn't carry the exemption and would return normal tax.
+
+### Reporting one return
+
+A completed return can be reported by its id in every mode. The administration does this with the **Send return to TaxJar** button on the return in the TaxJar refunds card. Other systems, for example a middleware that confirms the refund, call the Admin API action:
+
+```
+POST /api/_action/taxjar/return/{returnId}/refund
+```
+
+It needs the `order:update` permission and no request body. Only a return with the status **Done** is sent, and its cancelled items are left out. Calling it again for a return that is already reported sends nothing, so it is safe to retry.
+
+| Response | Meaning |
+| --- | --- |
+| `200` with `"status": "sent"` | The pending items of the return were sent. `transactionId` is the TaxJar refund transaction. |
+| `200` with `"status": "already_reported"` | TaxJar already had this refund. It is now recorded on the order. |
+| `200` with `"status": "nothing_pending"` | Every item of the return is already reported, or cancelled. |
+| `502` with `"status": "failed"` | TaxJar did not accept the refund. Nothing is recorded, so the call can be repeated. Details are in the TaxJar log. |
+| `400` with `message` | The return id is invalid or unknown, the return is not Done, the order was already fully refunded, or Commercial is not active. |
+
+```json
+{
+    "orderId": "0190e0d6c0f8711e9f5ac7be0e0f2d51",
+    "returnId": "0190e0d7a1b2730c8e4f9d6a5b3c2e10",
+    "returnNumber": "10001",
+    "status": "sent",
+    "transactionId": "SW10026_partial_refund_0190e0d7a1b2730c8e4f9d6a5b3c2e10"
+}
+```
+
+After a full refund (payment status Refunded) no return is sent anymore, because the full refund already reports what is left of the order.
+
+---
+
 ## TaxJar Calculation Data for Integrations
 
 The complete TaxJar `/v2/taxes` response used to tax a cart is exposed to other plugins, so reporting and reconciliation can work with the same data TaxJar returned.
@@ -171,7 +227,13 @@ The complete TaxJar `/v2/taxes` response used to tax a cart is exposed to other 
 | --- | --- | --- |
 | Cart extension | `taxjar_calculation` | Every cart calculation in which a tax rule mapped to TaxJar is involved |
 | Order custom field | `taxjar_calculation` | On order placement, and overwritten on every order recalculation (admin order edits, adding products, promotions) |
-| Order custom field | `taxjar_refund_calculations` | On every partial refund (Shopware Commercial return management) |
+| Order custom field | `taxjar_refund_calculations` | On every partial refund whose tax is calculated with TaxJar (Shopware Commercial return management) |
+
+The two order custom fields are written only while **Store TaxJar calculation data on the order** is enabled in the **Extra configuration** card of the plugin settings. It is enabled by default and can be set per sales channel. When it is disabled:
+
+- nothing is written to `taxjar_calculation` or `taxjar_refund_calculations`. When an order is recalculated, `taxjar_calculation` is set to `null`, so an earlier value can't go stale;
+- the `taxjar_calculation` cart extension is still available. Read it in `CartConvertedEvent` to store the data in your own entity. Admin order edits run on an order version, so give that entity a `ReferenceVersionField` to `order`;
+- tax calculation, TaxJar transaction reporting and `TaxJarApiCallEvent` are unchanged, and `taxJarTransactionId` and `taxjar_reported_refunds` are still written, because they keep TaxJar reporting idempotent.
 
 The key names are available as constants on `solu1TaxJar\Core\TaxJar\TaxJarCalculation`.
 
@@ -224,7 +286,7 @@ Each entry in `calculations`:
 | `taxId` | Shopware tax rule id of the product group. |
 | `status` | `success`, `failed`, `skipped`, `bypassed` or `address_mismatch`. |
 | `reason` | Why the entry is not `success`: `inactive` (TaxJar disabled for the sales channel), `missing_customer_or_shipping_address`, `bypass_rule`, `api_error`, `unusable_response`, `zip_state_mismatch` or `exception`. |
-| `source` | `api` when TaxJar was called, `cache` when the response came from the plugin's calculation cache. A cached response is the unmodified response of the earlier identical request. |
+| `source` | `api` when the response was fetched from TaxJar while handling the current request, `cache` when it was stored by an earlier request and read from the plugin's calculation cache. Shopware calculates a cart several times per request, so later passes reuse the response fetched by the first one and still report `api`. A cached response is the unmodified response of the earlier identical request. |
 | `addressFallback` | `true` when TaxJar rejected the ZIP/state combination and the response comes from the retry without ZIP, city and street. |
 | `request` | The exact payload sent to `/v2/taxes` for this response. |
 | `response` | The unmodified `/v2/taxes` response body (`{"tax": {...}}`), or `null` when no usable response was received. |
@@ -240,8 +302,79 @@ Status rules:
 
 ### `taxjar_refund_calculations`
 
-An object keyed by the Shopware return id. Each value has the same entry fields as above (`status`, `reason`, `source`, `request`, `response`, `error`) plus `version`, `returnId`, `calculatedAt` and `sandbox`. `request` is the payload the plugin sent to `/v2/taxes` for the returned line items. A full refund (payment status `refunded`) does not calculate tax with TaxJar. It reverses the order, so `taxjar_calculation` applies to it.
+An object keyed by the Shopware return id. Each value has the same entry fields as above (`status`, `reason`, `source`, `request`, `response`, `error`) plus `version`, `returnId`, `calculatedAt` and `sandbox`. `request` is the payload the plugin sent to `/v2/taxes` for the returned line items. It is written only when **Tax on partial refunds** is set to calculate with TaxJar (see [Tax on partial refunds](#tax-on-partial-refunds)). A full refund (payment status `refunded`) does not calculate tax with TaxJar. It reverses the order, so `taxjar_calculation` applies to it. When partial refunds were reported before, the full refund reports only what is left: the plugin subtracts their amount, shipping, sales tax and line item quantities, so the order nets to zero in TaxJar. It uses each partial refund as TaxJar returned it when accepting it, which is kept in `taxjar_reported_refunds`. Partial refunds reported by earlier versions are looked up in TaxJar instead, except in sandbox mode, where TaxJar answers every lookup with the same sample refund.
 
 The fields are not registered as administration custom fields. They are read and written through the API and DAL like any other order custom field.
+
+### `TaxJarApiCallEvent`
+
+`solu1TaxJar\Core\TaxJar\Event\TaxJarApiCallEvent` is dispatched after every request the plugin sends to TaxJar for a cart, an order, a refund, a return or a customer. It is dispatched for successful calls, TaxJar errors and calls that got no response (timeouts, connection errors). Use it to store the requests and responses where you need them, for example in your own table.
+
+| `getOperation()` | Request |
+| --- | --- |
+| `tax_calculation` | `POST /v2/taxes` during cart calculation, including admin order recalculation |
+| `tax_calculation_address_fallback` | The retry of a cart calculation without ZIP, city and street after TaxJar rejected the ZIP/state combination |
+| `order_create` | `POST /v2/transactions/orders` when the order is committed |
+| `order_cancel` | `DELETE /v2/transactions/orders/{id}` when the payment is cancelled |
+| `order_delete` | `DELETE /v2/transactions/orders/{id}` when the order is deleted |
+| `refund` | `POST /v2/transactions/refunds` for a full refund |
+| `partial_refund_calculation` | `POST /v2/taxes` for the items of a return |
+| `partial_refund` | `POST /v2/transactions/refunds` for a return |
+| `partial_refund_lookup` | `GET /v2/transactions/refunds/{id}` to check whether a return was already reported, and before a full refund to read partial refunds reported by earlier versions |
+| `customer_create`, `customer_update` | `POST` or `PUT /v2/customers` when a customer's exemption is saved in the administration |
+
+| Getter | Content |
+| --- | --- |
+| `getOperation()` | One of the `OPERATION_*` constants above |
+| `getMethod()`, `getEndpoint()` | HTTP method and full URL |
+| `getRequest()` | The payload sent as the JSON body |
+| `getStatusCode()` | HTTP status, or `null` when TaxJar did not answer |
+| `getResponseBody()` / `getResponseData()` | The unmodified response body / the body decoded as JSON, `null` without a response |
+| `getError()` | Transport or HTTP error message, `null` on success |
+| `isSuccess()` | `true` for a 2xx status |
+| `isSandbox()` | `true` when the sandbox API was used |
+| `getRequestedAt()`, `getDurationMs()` | When the request was sent and how long it took |
+| `getSalesChannelId()`, `getOrderId()`, `getReturnId()`, `getCustomerId()` | Shopware ids related to the request, `null` when not applicable |
+| `getContext()` | The Shopware context of the operation |
+
+```php
+use Doctrine\DBAL\Connection;
+use Shopware\Core\Defaults;
+use Shopware\Core\Framework\Uuid\Uuid;
+use solu1TaxJar\Core\TaxJar\Event\TaxJarApiCallEvent;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+
+class TaxJarApiCallLogger implements EventSubscriberInterface
+{
+    public function __construct(private readonly Connection $connection)
+    {
+    }
+
+    public static function getSubscribedEvents(): array
+    {
+        return [TaxJarApiCallEvent::class => 'onTaxJarApiCall'];
+    }
+
+    public function onTaxJarApiCall(TaxJarApiCallEvent $event): void
+    {
+        $this->connection->insert('my_taxjar_api_log', [
+            'id' => Uuid::randomBytes(),
+            'operation' => $event->getOperation(),
+            'order_id' => $event->getOrderId() ? Uuid::fromHexToBytes($event->getOrderId()) : null,
+            'return_id' => $event->getReturnId() ? Uuid::fromHexToBytes($event->getReturnId()) : null,
+            'status_code' => $event->getStatusCode(),
+            'request' => json_encode($event->getRequest()),
+            'response' => $event->getResponseBody(),
+            'created_at' => $event->getRequestedAt()->format(Defaults::STORAGE_DATE_TIME_FORMAT),
+        ]);
+    }
+}
+```
+
+- The event runs synchronously, also during cart calculation. Keep listeners fast, and hand heavy work to the message queue.
+- An exception thrown by a listener is logged and does not change the tax calculation or the TaxJar transaction. The listener's own data is then missing, so log or handle errors inside your listener.
+- Calculations answered from the plugin's cache do not call TaxJar and do not dispatch the event. The `taxjar_calculation` cart extension shows them with `source: cache`.
+- The event never contains request headers or the API token. Requests and responses do contain customer addresses and names, so your storage needs its own retention.
+- The nexus region list and the connection test in the plugin settings do not dispatch the event.
 
 ---

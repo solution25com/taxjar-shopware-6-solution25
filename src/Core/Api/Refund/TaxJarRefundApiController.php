@@ -55,6 +55,31 @@ class TaxJarRefundApiController extends AbstractController
     ]);
   }
 
+  /**
+   * Reports one completed return to TaxJar. Calling it again for a reported return sends nothing.
+   * Responds 502 when TaxJar did not accept the refund, so the caller can retry.
+   */
+  #[Route(
+    path: '/api/_action/taxjar/return/{returnId}/refund',
+    name: 'api.action.taxjar.return.refund',
+    defaults: ['_acl' => ['order:update']],
+    methods: ['POST']
+  )]
+  public function sendReturnRefund(string $returnId, Context $context): JsonResponse
+  {
+    if (!Uuid::isValid($returnId)) {
+      return new JsonResponse(['message' => 'Invalid return id.'], 400);
+    }
+
+    try {
+      $result = $this->transactionSubscriber->reportReturn($returnId, $context);
+    } catch (\RuntimeException $e) {
+      return new JsonResponse(['message' => $e->getMessage()], 400);
+    }
+
+    return new JsonResponse($result, $result['status'] === 'failed' ? 502 : 200);
+  }
+
   private function respond(string $orderId, \Closure $action): JsonResponse
   {
     if (!Uuid::isValid($orderId)) {

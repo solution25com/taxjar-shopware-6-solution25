@@ -17,9 +17,11 @@
             "closeButton": "Close",
             "copySuccess": "Copied to clipboard.",
             "sendButton": "Send pending refunds to TaxJar",
+            "sendReturnButton": "Send return to TaxJar",
             "sendBlocked": {
                 "paymentState": "Available when the payment status is Refunded (partially).",
-                "fullRefund": "Not available after a full refund. The order was already reported to TaxJar as fully refunded."
+                "fullRefund": "Not available after a full refund. The order was already reported to TaxJar as fully refunded.",
+                "returnState": "Can be sent to TaxJar when the return status is Done."
             },
             "nothingPending": "All returned items are reported to TaxJar."
         },
@@ -32,7 +34,9 @@
             "sendSuccess": "Pending refunds were sent to TaxJar.",
             "nothingSent": "Nothing to send. All returned items are already reported to TaxJar.",
             "sendFailed": "Could not send refunds for return {returns} to TaxJar. Check the TaxJar log.",
-            "sendError": "Refunds could not be sent to TaxJar."
+            "sendError": "Refunds could not be sent to TaxJar.",
+            "returnSent": "Return #{number} is reported to TaxJar.",
+            "returnNothingSent": "Nothing to send for return #{number}. Its items are already reported to TaxJar or cancelled."
         }
     }
 }

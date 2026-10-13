@@ -19,7 +19,8 @@ class ClientApiService
     public function sendRequest(string $method, string $endpointUrl, array $headers, array $body): array
     {
         $client = new Client(['connect_timeout' => self::CONNECT_TIMEOUT, 'timeout' => self::REQUEST_TIMEOUT]);
-        $request = new GRequest($method, $endpointUrl, $headers, json_encode($body));
+        // TaxJar's CloudFront answers 403 to a GET that carries a body, even an empty "[]".
+        $request = new GRequest($method, $endpointUrl, $headers, $method === 'GET' ? null : json_encode($body));
 
         try {
             $response = $client->send($request);

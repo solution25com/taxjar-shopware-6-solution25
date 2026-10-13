@@ -30,6 +30,14 @@ export default class TaxJarRefundApiService extends ApiService {
             })
             .then(response => ApiService.handleResponse(response));
     }
+
+    sendReturn(returnId) {
+        return this.httpClient
+            .post(`_action/taxjar/return/${returnId}/refund`, {}, {
+                headers: this.getBasicHeaders(),
+            })
+            .then(response => ApiService.handleResponse(response));
+    }
 }
 
 Application.addServiceProvider('taxJarRefundApiService', (container) => {

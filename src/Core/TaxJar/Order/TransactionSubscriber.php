@@ -12,6 +12,7 @@ use Shopware\Core\Checkout\Cart\LineItem\LineItem;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
 use Shopware\Core\Checkout\Order\Event\OrderStateMachineStateChangeEvent;
 use Shopware\Core\Checkout\Order\Aggregate\OrderDelivery\OrderDeliveryEntity;
+use Shopware\Core\Checkout\Order\Aggregate\OrderLineItem\OrderLineItemEntity;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Order\OrderEvents;
 use Shopware\Core\Content\Product\ProductEntity;
@@ -26,8 +27,11 @@ use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Sorting\FieldSorting;
 use Shopware\Core\System\Country\Aggregate\CountryState\CountryStateEntity;
 use Shopware\Core\System\Country\CountryEntity;
+use Shopware\Core\System\StateMachine\Event\StateMachineStateChangeEvent;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Core\TaxJar\Event\TaxJarApiCallEvent;
 use solu1TaxJar\Core\TaxJar\TaxJarCalculation;
+use solu1TaxJar\Service\ApiCallEventDispatcher;
 use solu1TaxJar\Service\ClientApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Psr\Log\LoggerInterface;
@@ -45,6 +49,19 @@ class TransactionSubscriber implements EventSubscriberInterface
   public const ORDER_CANCEL_REQUEST_TYPE = 'Order Cancel Transaction';
 
   public const PARTIAL_REFUND_REPORTING_MANUAL = 'manual';
+
+  public const PARTIAL_REFUND_REPORTING_PAYMENT_STATUS = 'paymentStatus';
+
+  public const PARTIAL_REFUND_REPORTING_RETURN_COMPLETED = 'returnCompleted';
+
+  public const PARTIAL_REFUND_TAX_SOURCE_TAXJAR = 'taxjarCalculation';
+
+  public const PARTIAL_REFUND_TAX_SOURCE_CHECKOUT = 'checkoutTax';
+
+  // Shopware Commercial state names, kept here so the plugin also loads without Commercial.
+  private const RETURN_STATE_DONE = 'done';
+
+  private const RETURN_LINE_ITEM_STATE_CANCELLED = 'cancelled';
 
   public const VERSION = '1.10.4';
 
@@ -111,6 +128,7 @@ class TransactionSubscriber implements EventSubscriberInterface
   private ClientApiService $clientApiService;
   private ?EntityRepository $orderReturnRepository;
   private LoggerInterface $logger;
+  private ApiCallEventDispatcher $apiCallEventDispatcher;
 
 
     /**
@@ -132,6 +150,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     ClientApiService    $clientApiService,
     ?EntityRepository $orderReturnRepository,
     LoggerInterface $logger,
+    ApiCallEventDispatcher $apiCallEventDispatcher,
   )
   {
     $this->systemConfigService = $systemConfigService;
@@ -143,6 +162,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $this->clientApiService = $clientApiService;
     $this->orderReturnRepository = $orderReturnRepository;
     $this->logger = $logger;
+    $this->apiCallEventDispatcher = $apiCallEventDispatcher;
   }
 
   public static function getSubscribedEvents(): array
@@ -155,6 +175,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       'state_enter.order_transaction.state.paid' => 'onOrderStatePaid',
       'state_enter.order_transaction.state.refunded' => 'onOrderRefund',
       'state_enter.order_transaction.state.refunded_partially' => 'onPartiallyOrderRefund',
+      'state_machine.order_return.state_changed' => 'onOrderReturnStateChanged',
     ];
   }
 
@@ -317,7 +338,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
           $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $transactionId;
 
-          $response = $this->callTaxJar(self::ORDER_DELETE_REQUEST_TYPE, 'DELETE', $endpointUrl, ['orderId' => $transactionId], ['orderId' => $orderId]);
+          $response = $this->callTaxJar(self::ORDER_DELETE_REQUEST_TYPE, TaxJarApiCallEvent::OPERATION_ORDER_DELETE, 'DELETE', $endpointUrl, ['orderId' => $transactionId], ['orderId' => $orderId]);
 
           $logInfo['response'] = $response['body'];
           $this->logRequestResponse($logInfo);
@@ -357,7 +378,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/orders/' . $orderId;
 
-      $response = $this->callTaxJar(self::ORDER_CANCEL_REQUEST_TYPE, 'DELETE', $endpointUrl, ['orderId' => $orderId], ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
+      $response = $this->callTaxJar(self::ORDER_CANCEL_REQUEST_TYPE, TaxJarApiCallEvent::OPERATION_ORDER_CANCEL, 'DELETE', $endpointUrl, ['orderId' => $orderId], ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
@@ -387,7 +408,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         return;
       }
 
-      if ($this->isManualRefundReporting($order)) {
+      if ($this->getPartialRefundReporting($order) !== self::PARTIAL_REFUND_REPORTING_PAYMENT_STATUS) {
         return;
       }
 
@@ -412,7 +433,8 @@ class TransactionSubscriber implements EventSubscriberInterface
   }
 
   /**
-   * Calculate tax for partial refund using TaxJar API
+   * Calculate tax for partial refund using TaxJar API, or, when the "Tax on partial refunds" setting says so,
+   * from the tax charged at checkout
    * @param OrderEntity $order
    * @param array $pendingItems
    * @return array|null
@@ -423,6 +445,13 @@ class TransactionSubscriber implements EventSubscriberInterface
       if ($pendingItems === []) {
         return null;
       }
+
+      $useCheckoutTax = $this->usesCheckoutTaxForRefunds($order);
+      $exemptionType = $this->getCustomerExemption($order)['exemptionType'];
+      $isExempt = $exemptionType !== null;
+      $reportedQuantities = $useCheckoutTax ? $this->getReportedQuantitiesByOrderLine($order) : [];
+      $checkoutLineTaxes = [];
+      $notRefundedAmount = 0.0;
 
       $taxLineItems = [];
       $totalAmount = 0;
@@ -469,6 +498,24 @@ class TransactionSubscriber implements EventSubscriberInterface
           $taxLineItem['product_tax_code'] = $productTaxCode;
         }
 
+        if ($useCheckoutTax) {
+          $fullPrice = round($lineTotal, 2);
+          // refundAmount covers the whole return item, while only the pending quantity is reported now.
+          $refunded = $returnedItem->getQuantity() > 0
+            ? min($fullPrice, round($returnedItem->getRefundAmount() * $quantity / $returnedItem->getQuantity(), 2))
+            : $fullPrice;
+          $lineTax = $isExempt ? 0.0 : $this->getCheckoutLineTaxShare($originalLineItem, $reportedQuantities[$originalLineItem->getId()] ?? 0, $quantity);
+          $reportedQuantities[$originalLineItem->getId()] = ($reportedQuantities[$originalLineItem->getId()] ?? 0) + $quantity;
+
+          if ($refunded < $fullPrice) {
+            $lineTax = $fullPrice > 0 ? round($lineTax * $refunded / $fullPrice, 2) : 0.0;
+            $taxLineItem['discount'] = round($fullPrice - $refunded, 2);
+            $notRefundedAmount += $fullPrice - $refunded;
+          }
+
+          $checkoutLineTaxes[] = $lineTax;
+        }
+
         $taxLineItems[] = $taxLineItem;
         $totalAmount += $lineTotal;
       }
@@ -499,6 +546,38 @@ class TransactionSubscriber implements EventSubscriberInterface
         $totalShipping = ($totalAmount / $originalTotal) * $order->getShippingTotal();
       }
 
+      if ($isExempt && !$useCheckoutTax) {
+        // Exempt orders are committed without sales tax, so their refunds return none either.
+        // /v2/taxes would calculate normal tax here, because it is not told that the order was exempt.
+        return [
+          'return_id' => $returnId,
+          'transaction_id' => $transactionId,
+          'tax_source' => self::PARTIAL_REFUND_TAX_SOURCE_TAXJAR,
+          'exemption_type' => $exemptionType,
+          'line_items' => $taxLineItems,
+          'line_taxes' => array_fill(0, \count($taxLineItems), 0.0),
+          'total_amount' => $totalAmount,
+          'total_shipping' => $totalShipping,
+          'total_tax' => 0.0,
+        ];
+      }
+
+      if ($useCheckoutTax) {
+        $shippingTax = $isExempt ? 0.0 : $this->getCheckoutShippingTaxShare($order, $totalShipping);
+
+        return [
+          'return_id' => $returnId,
+          'transaction_id' => $transactionId,
+          'tax_source' => self::PARTIAL_REFUND_TAX_SOURCE_CHECKOUT,
+          'exemption_type' => $exemptionType,
+          'line_items' => $taxLineItems,
+          'line_taxes' => $checkoutLineTaxes,
+          'total_amount' => round($totalAmount - $notRefundedAmount, 2),
+          'total_shipping' => $totalShipping,
+          'total_tax' => round(array_sum($checkoutLineTaxes) + $shippingTax, 2),
+        ];
+      }
+
       $taxRequest = [
         'to_country' => $countryIso,
         'to_zip' => $destinationAddress?->getZipcode(),
@@ -513,7 +592,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $shippingFromAddress = $this->getShippingOriginAddress();
       $taxRequest = array_merge($shippingFromAddress, $taxRequest);
 
-      $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest);
+      $taxResponse = $this->_getTaxRateWithHttpRequest($taxRequest, $order->getId(), $returnId);
 
       $this->persistRefundCalculation($order, $returnId, $transactionId, $this->toRefundCalculation($taxRequest, $taxResponse));
 
@@ -529,11 +608,18 @@ class TransactionSubscriber implements EventSubscriberInterface
         return null;
       }
 
+      $taxBreakdownLineItems = $taxResponse['breakdown']['line_items'] ?? null;
+
       return [
         'return_id' => $returnId,
         'transaction_id' => $transactionId,
+        'tax_source' => self::PARTIAL_REFUND_TAX_SOURCE_TAXJAR,
+        'exemption_type' => null,
         'tax_response' => $taxResponse,
         'line_items' => $taxLineItems,
+        'line_taxes' => \is_array($taxBreakdownLineItems)
+          ? array_map(static fn (mixed $taxBreakdown): mixed => $taxBreakdown ? ($taxBreakdown['tax_collectable'] ?? 0) : null, $taxBreakdownLineItems)
+          : null,
         'total_amount' => $totalAmount,
         'total_shipping' => $totalShipping,
         'total_tax' => $taxResponse['amount_to_collect'] ?? 0
@@ -543,6 +629,66 @@ class TransactionSubscriber implements EventSubscriberInterface
       $this->logTaxJarException('Partial Refund Tax Calculation', $e, ['orderId' => $order->getId()]);
       return null;
     }
+  }
+
+  /**
+   * TaxJar recommends calculating the tax of a refund with /v2/taxes, which is the default. The setting
+   * "Tax on partial refunds" can switch to the tax charged at checkout instead.
+   */
+  private function usesCheckoutTaxForRefunds(OrderEntity $order): bool
+  {
+    return $this->systemConfigService->get('solu1TaxJar.setting.partialRefundTaxSource', $order->getSalesChannelId()) === self::PARTIAL_REFUND_TAX_SOURCE_CHECKOUT;
+  }
+
+  /**
+   * The returned quantity's share of the tax charged on the order line at checkout, which the order commit
+   * reported as the line's sales_tax. Rounded cumulatively over all returns of the line, so the shares add up
+   * to exactly that tax once the whole line is returned.
+   */
+  private function getCheckoutLineTaxShare(OrderLineItemEntity $orderLineItem, int $reportedQuantity, int $quantity): float
+  {
+    $orderedQuantity = $orderLineItem->getQuantity();
+    if ($orderedQuantity <= 0) {
+      return 0.0;
+    }
+
+    $lineTax = (float) ($orderLineItem->getPrice()?->getCalculatedTaxes()->getAmount() ?? 0.0);
+    $before = min($reportedQuantity, $orderedQuantity);
+    $after = min($reportedQuantity + $quantity, $orderedQuantity);
+
+    return round(round($lineTax * $after / $orderedQuantity, 2) - round($lineTax * $before / $orderedQuantity, 2), 2);
+  }
+
+  /**
+   * The refunded shipping's share of the shipping tax charged at checkout, reported only when shipping is
+   * part of the tax calculation, as in the order commit.
+   */
+  private function getCheckoutShippingTaxShare(OrderEntity $order, float $shipping): float
+  {
+    $shippingTotal = $order->getShippingTotal();
+    if (!$this->useIncludeShippingCostForTaxCalculation() || $shippingTotal <= 0) {
+      return 0.0;
+    }
+
+    $shippingTax = (float) ($order->getShippingCosts()?->getCalculatedTaxes()->getAmount() ?? 0.0);
+
+    return round($shippingTax * min($shipping, $shippingTotal) / $shippingTotal, 2);
+  }
+
+  /**
+   * The quantity of each order line already reported to TaxJar, over all returns of the order.
+   */
+  private function getReportedQuantitiesByOrderLine(OrderEntity $order): array
+  {
+    $reportedQuantities = [];
+    foreach ($this->loadOrderReturns($order->getId()) as $orderReturn) {
+      foreach ($this->getPendingReturnItems($order, $orderReturn) as ['lineItem' => $returnLineItem, 'quantity' => $pending]) {
+        $orderLineItemId = $returnLineItem->getOrderLineItemId();
+        $reportedQuantities[$orderLineItemId] = ($reportedQuantities[$orderLineItemId] ?? 0) + $returnLineItem->getQuantity() - $pending;
+      }
+    }
+
+    return $reportedQuantities;
   }
 
   private function toRefundCalculation(array $taxRequest, mixed $taxResponse): array
@@ -562,6 +708,10 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   private function persistRefundCalculation(OrderEntity $order, string $returnId, string $transactionId, array $calculation): void
   {
+    if (!TaxJarCalculation::isStoredInOrder($this->systemConfigService, $order->getSalesChannelId())) {
+      return;
+    }
+
     try {
       $customFields = $order->getCustomFields() ?? [];
       $refundCalculations = \is_array($customFields[TaxJarCalculation::ORDER_REFUND_CUSTOM_FIELD] ?? null)
@@ -589,7 +739,7 @@ class TransactionSubscriber implements EventSubscriberInterface
    * @param array $orderDetail
    * @return array|mixed
    */
-  private function _getTaxRateWithHttpRequest(array $orderDetail = [])
+  private function _getTaxRateWithHttpRequest(array $orderDetail, string $orderId, string $returnId)
   {
     $response = [];
     $headers = [
@@ -598,26 +748,41 @@ class TransactionSubscriber implements EventSubscriberInterface
       "X-CSRF-Token" => $this->_taxJarApiToken()
     ];
 
+    $endpointUrl = $this->_getApiEndPoint() . '/taxes';
     $request = new Request(
       'POST',
-      $this->_getApiEndPoint() . '/taxes',
+      $endpointUrl,
       $headers,
       json_encode($orderDetail)
     );
 
+    $startedAt = microtime(true);
     try {
       $client = new Client(['connect_timeout' => self::API_CONNECT_TIMEOUT, 'timeout' => self::API_REQUEST_TIMEOUT]);
       $response = $client->send($request);
     } catch (\Throwable $e) {
       $this->logTaxJarException('Partial Refund Tax Calculation', $e, []);
 
-      return ['error' => $e instanceof BadResponseException
-        ? json_decode($e->getResponse()->getBody()->getContents(), true)
+      $errorBody = $e instanceof BadResponseException ? $e->getResponse()->getBody()->getContents() : null;
+      $this->dispatchApiCall(TaxJarApiCallEvent::OPERATION_PARTIAL_REFUND_CALCULATION, 'POST', $endpointUrl, $orderDetail, [
+        'status' => $e instanceof BadResponseException ? $e->getResponse()->getStatusCode() : null,
+        'body' => $errorBody,
+        'error' => $e->getMessage(),
+      ], $startedAt, $orderId, $returnId);
+
+      return ['error' => $errorBody !== null
+        ? json_decode($errorBody, true)
         : ['message' => $e->getMessage()]];
     }
 
+    $statusCode = $response->getStatusCode();
     try {
       $response = $response->getBody()->getContents();
+      $this->dispatchApiCall(TaxJarApiCallEvent::OPERATION_PARTIAL_REFUND_CALCULATION, 'POST', $endpointUrl, $orderDetail, [
+        'status' => $statusCode,
+        'body' => $response,
+        'error' => null,
+      ], $startedAt, $orderId, $returnId);
       $response = json_decode($response, true);
       
       if (isset($response['tax'])) {
@@ -661,19 +826,21 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $refundLineItems = [];
-      if (isset($refundData['tax_response']['breakdown']['line_items'])) {
-        $taxBreakdownLineItems = $refundData['tax_response']['breakdown']['line_items'];
-        
+      if ($refundData['line_taxes'] !== null) {
         foreach ($refundData['line_items'] as $index => $lineItem) {
-          $taxBreakdown = $taxBreakdownLineItems[$index] ?? null;
-          
+          $lineTax = $refundData['line_taxes'][$index] ?? null;
+
           $refundLineItem = [
             'quantity' => $lineItem['quantity'],
             'product_identifier' => $lineItem['product_identifier'],
             'description' => $lineItem['description'],
             'unit_price' => -abs($lineItem['unit_price']),
-            'sales_tax' => $taxBreakdown ? -abs($taxBreakdown['tax_collectable']) : 0
+            'sales_tax' => $lineTax !== null ? -abs($lineTax) : 0
           ];
+
+          if (isset($lineItem['discount'])) {
+            $refundLineItem['discount'] = $this->negate($lineItem['discount']);
+          }
 
           if (isset($lineItem['product_tax_code'])) {
             $refundLineItem['product_tax_code'] = $lineItem['product_tax_code'];
@@ -704,9 +871,14 @@ class TransactionSubscriber implements EventSubscriberInterface
         $refundRequest['customer_id'] = $taxjarCustomerId;
       }
 
+      // Same exemption as the order transaction.
+      if (!empty($refundData['exemption_type'])) {
+        $refundRequest['exemption_type'] = $refundData['exemption_type'];
+      }
+
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
       
-      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, 'POST', $endpointUrl, $refundRequest, ['orderId' => $order->getId(), 'orderNumber' => $order->getOrderNumber()]);
+      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, TaxJarApiCallEvent::OPERATION_PARTIAL_REFUND, 'POST', $endpointUrl, $refundRequest, ['orderId' => $order->getId(), 'orderNumber' => $order->getOrderNumber(), 'returnId' => $refundData['return_id']]);
 
       $logInfo = $this->getLogInfo($order, $refundRequest, self::ORDER_REFUND_REQUEST_TYPE);
       $logInfo['response'] = $response['body'];
@@ -754,10 +926,14 @@ class TransactionSubscriber implements EventSubscriberInterface
           : []));
 
       $items = [];
+      $sendableQuantity = 0;
       foreach ($this->getPendingReturnItems($order, $orderReturn) as ['lineItem' => $returnLineItem, 'quantity' => $pending]) {
         $orderLineItem = $order->getLineItems()?->get($returnLineItem->getOrderLineItemId());
         $reported = $returnLineItem->getQuantity() - $pending;
         $pendingQuantity += $pending;
+        if ($returnLineItem->getState()?->getTechnicalName() !== self::RETURN_LINE_ITEM_STATE_CANCELLED) {
+          $sendableQuantity += $pending;
+        }
 
         $transactionIds = [];
         foreach ($transactions as $transaction) {
@@ -788,6 +964,11 @@ class TransactionSubscriber implements EventSubscriberInterface
         'verified' => \is_array($reportedRefund['lineItems'] ?? null) || ($reportedRefund === null && !isset($refundCalculations[$returnId])),
         'items' => $items,
         'transactions' => array_values($transactions),
+        // For the per-return button, which sends only a completed return and leaves out cancelled items (see reportReturn()).
+        'sendableQuantity' => $sendableQuantity,
+        'sendBlockedReason' => $sendBlockedReason === 'fullRefund'
+          ? 'fullRefund'
+          : ($orderReturn->getState()?->getTechnicalName() !== self::RETURN_STATE_DONE ? 'returnState' : null),
       ];
     }
 
@@ -854,42 +1035,151 @@ class TransactionSubscriber implements EventSubscriberInterface
     $results = [];
 
     foreach ($this->loadOrderReturns($order->getId()) as $orderReturn) {
-      $returnId = $orderReturn->getId();
-      $result = ['returnId' => $returnId, 'returnNumber' => $orderReturn->getReturnNumber()];
+      $result = $this->reportReturnRefund($order, $orderReturn, false);
 
-      if (!$this->verifyReportedRefund($order, $orderReturn)) {
-        $results[] = $result + ['status' => 'failed'];
-        continue;
-      }
-
-      $pendingItems = array_values(array_filter(
-        $this->getPendingReturnItems($order, $orderReturn),
-        static fn (array $item): bool => $item['quantity'] > 0
-      ));
-      if ($pendingItems === []) {
-        continue;
-      }
-
-      $transactionId = $this->getRefundTransactionId($order, $returnId, \count($this->getReportedRefunds($order)[$returnId]['transactions'] ?? []) + 1);
-      $refundData = $this->calculatePartialRefundTax($order, $returnId, $transactionId, $pendingItems);
-      $response = $refundData ? $this->createPartialRefundTransaction($order, $refundData) : null;
-
-      if (($response['success'] ?? false) === true) {
-        $quantities = [];
-        foreach ($pendingItems as ['lineItem' => $returnLineItem, 'quantity' => $quantity]) {
-          $quantities[$returnLineItem->getId()] = $quantity;
-        }
-
-        $this->markRefundReported($order, $returnId, $transactionId, $quantities);
-        $results[] = $result + ['status' => 'sent', 'transactionId' => $transactionId];
-      } elseif ($response !== null && $this->isDuplicateTransactionResponse($response) && $this->recordExistingRefund($order, $orderReturn, $transactionId)) {
-        $results[] = $result + ['status' => 'already_reported', 'transactionId' => $transactionId];
-      } else {
-        $results[] = $result + ['status' => 'failed'];
+      if ($result !== null) {
+        $results[] = $result;
       }
     }
 
     return $results;
+  }
+
+  /**
+   * Reports the items of one return that are not in TaxJar yet. Null when nothing is pending.
+   */
+  private function reportReturnRefund(OrderEntity $order, mixed $orderReturn, bool $skipCancelledItems): ?array
+  {
+    $returnId = $orderReturn->getId();
+    $result = ['returnId' => $returnId, 'returnNumber' => $orderReturn->getReturnNumber()];
+
+    if (!$this->verifyReportedRefund($order, $orderReturn)) {
+      return $result + ['status' => 'failed'];
+    }
+
+    $pendingItems = array_values(array_filter(
+      $this->getPendingReturnItems($order, $orderReturn),
+      static fn (array $item): bool => $item['quantity'] > 0
+        && !($skipCancelledItems && $item['lineItem']->getState()?->getTechnicalName() === self::RETURN_LINE_ITEM_STATE_CANCELLED)
+    ));
+    if ($pendingItems === []) {
+      return null;
+    }
+
+    $transactionId = $this->getRefundTransactionId($order, $returnId, \count($this->getReportedRefunds($order)[$returnId]['transactions'] ?? []) + 1);
+    $refundData = $this->calculatePartialRefundTax($order, $returnId, $transactionId, $pendingItems);
+    $response = $refundData ? $this->createPartialRefundTransaction($order, $refundData) : null;
+
+    if (($response['success'] ?? false) === true) {
+      $quantities = [];
+      foreach ($pendingItems as ['lineItem' => $returnLineItem, 'quantity' => $quantity]) {
+        $quantities[$returnLineItem->getId()] = $quantity;
+      }
+
+      $this->markRefundReported($order, $returnId, $transactionId, $quantities, json_decode((string) ($response['body'] ?? ''), true)['refund'] ?? null);
+
+      return $result + ['status' => 'sent', 'transactionId' => $transactionId];
+    }
+
+    if ($response !== null && $this->isDuplicateTransactionResponse($response) && $this->recordExistingRefund($order, $orderReturn, $transactionId)) {
+      return $result + ['status' => 'already_reported', 'transactionId' => $transactionId];
+    }
+
+    return $result + ['status' => 'failed'];
+  }
+
+  /**
+   * Reports one completed return, for the Admin API action and the per-return button of the refunds card.
+   * Cancelled return items are left out, and a return that is already reported is not sent again.
+   */
+  public function reportReturn(string $returnId, Context $context): array
+  {
+    $this->context = $context;
+
+    if ($this->orderReturnRepository === null) {
+      throw new \RuntimeException('Return management (Shopware Commercial) is not active.');
+    }
+
+    $orderReturn = $this->loadOrderReturn($returnId);
+    if ($orderReturn === null) {
+      throw new \RuntimeException(sprintf('Return %s not found.', $returnId));
+    }
+
+    $order = $this->getOrder($orderReturn->getOrderId());
+    if (!$order) {
+      throw new \RuntimeException(sprintf('Order %s not found.', $orderReturn->getOrderId()));
+    }
+
+    if ($orderReturn->getState()?->getTechnicalName() !== self::RETURN_STATE_DONE) {
+      throw new \RuntimeException('Only completed returns are sent to TaxJar. Set the return status to Done first.');
+    }
+
+    if ($this->getPaymentState($order->getId()) === OrderTransactionStates::STATE_REFUNDED) {
+      throw new \RuntimeException('Refunds cannot be sent after a full refund, the order was already reported to TaxJar as fully refunded.');
+    }
+
+    if (!$this->hasTaxJarProvider($order)) {
+      throw new \RuntimeException('The order is not handled by TaxJar.');
+    }
+
+    $this->salesChannelId = $order->getSalesChannelId();
+
+    return ['orderId' => $order->getId()] + ($this->reportReturnRefund($order, $orderReturn, true)
+      ?? ['returnId' => $returnId, 'returnNumber' => $orderReturn->getReturnNumber(), 'status' => 'nothing_pending']);
+  }
+
+  /**
+   * In the "return completed" reporting mode, reports a return when its status changes to Done.
+   */
+  public function onOrderReturnStateChanged(StateMachineStateChangeEvent $event): void
+  {
+    if ($event->getTransitionSide() !== StateMachineStateChangeEvent::STATE_MACHINE_TRANSITION_SIDE_ENTER
+      || $event->getStateName() !== self::RETURN_STATE_DONE
+      || $this->orderReturnRepository === null) {
+      return;
+    }
+
+    $returnId = $event->getTransition()->getEntityId();
+    $orderReturn = null;
+
+    try {
+      // The administration changes the return status in the order's draft version and saves it right after,
+      // so the return and the reported-refund ledger are read and written in the event's context.
+      $this->context = $event->getContext();
+
+      $orderReturn = $this->loadOrderReturn($returnId);
+      $order = $orderReturn ? $this->getOrder($orderReturn->getOrderId()) : null;
+
+      if (!$order || !$this->hasTaxJarProvider($order) || $this->getPartialRefundReporting($order) !== self::PARTIAL_REFUND_REPORTING_RETURN_COMPLETED) {
+        return;
+      }
+
+      $earlyReturnReason = null;
+      if ($this->getPaymentState($order->getId()) === OrderTransactionStates::STATE_REFUNDED) {
+        $earlyReturnReason = 'already_fully_refunded';
+      } elseif ($this->systemConfigService->get('solu1TaxJar.setting.selectedCommitFlows', $order->getSalesChannelId()) === 'ship'
+        && $this->getPrimaryDelivery($order)?->getStateMachineState()?->getTechnicalName() !== 'shipped') {
+        $earlyReturnReason = 'selected_commit_flow_mismatch';
+      }
+
+      if ($earlyReturnReason !== null) {
+        $this->logOrderTransactionDiagnostic('state_event_skipped', [
+          'shopwareEventName' => $event->getName(),
+          'orderId' => $order->getId(),
+          'orderNumber' => $order->getOrderNumber(),
+          'earlyReturnReason' => $earlyReturnReason,
+        ]);
+
+        return;
+      }
+
+      $this->salesChannelId = $order->getSalesChannelId();
+
+      $this->reportReturnRefund($order, $orderReturn, true);
+    } catch (\Throwable $e) {
+      // Never let a TaxJar problem undo the return status change.
+      $this->logTaxJarException(self::ORDER_REFUND_REQUEST_TYPE, $e, ['orderId' => $orderReturn?->getOrderId()]);
+    }
   }
 
   private function verifyReportedRefund(OrderEntity $order, mixed $orderReturn): bool
@@ -910,15 +1200,37 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   private function recordExistingRefund(OrderEntity $order, mixed $orderReturn, string $transactionId): bool
   {
-    $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds/' . rawurlencode($transactionId);
-    $response = $this->clientApiService->sendRequest('GET', $endpointUrl, $this->getHeaders(), []);
+    $refund = $this->lookupRefund($order, $transactionId, $orderReturn->getId());
 
-    if (($response['status'] ?? null) === 404) {
+    if ($refund === false) {
+      return false;
+    }
+
+    if ($refund === null) {
       $reportedRefunds = $this->getReportedRefunds($order);
       $reportedRefunds[$orderReturn->getId()] = ['lineItems' => [], 'transactions' => []];
       $this->saveReportedRefunds($order, $reportedRefunds);
 
       return true;
+    }
+
+    $this->markRefundReported($order, $orderReturn->getId(), $transactionId, $this->mapRefundLineItems($order, $orderReturn, $refund['line_items'] ?? []), $refund);
+
+    return true;
+  }
+
+  /**
+   * @return array|false|null the refund TaxJar holds, null when TaxJar has no refund with this id, false when the lookup failed
+   */
+  private function lookupRefund(OrderEntity $order, string $transactionId, string $returnId): array|false|null
+  {
+    $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds/' . rawurlencode($transactionId);
+    $startedAt = microtime(true);
+    $response = $this->clientApiService->sendRequest('GET', $endpointUrl, $this->getHeaders(), []);
+    $this->dispatchApiCall(TaxJarApiCallEvent::OPERATION_PARTIAL_REFUND_LOOKUP, 'GET', $endpointUrl, [], $response, $startedAt, $order->getId(), $returnId);
+
+    if (($response['status'] ?? null) === 404) {
+      return null;
     }
 
     $refund = json_decode((string) ($response['body'] ?? ''), true)['refund'] ?? null;
@@ -937,9 +1249,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       return false;
     }
 
-    $this->markRefundReported($order, $orderReturn->getId(), $transactionId, $this->mapRefundLineItems($order, $orderReturn, $refund['line_items'] ?? []));
-
-    return true;
+    return $refund;
   }
 
   private function getPendingReturnItems(OrderEntity $order, mixed $orderReturn): array
@@ -1007,7 +1317,14 @@ class TransactionSubscriber implements EventSubscriberInterface
 
   private function isManualRefundReporting(OrderEntity $order): bool
   {
-    return $this->systemConfigService->get('solu1TaxJar.setting.partialRefundReporting', $order->getSalesChannelId()) === self::PARTIAL_REFUND_REPORTING_MANUAL;
+    return $this->getPartialRefundReporting($order) === self::PARTIAL_REFUND_REPORTING_MANUAL;
+  }
+
+  private function getPartialRefundReporting(OrderEntity $order): string
+  {
+    $mode = $this->systemConfigService->get('solu1TaxJar.setting.partialRefundReporting', $order->getSalesChannelId());
+
+    return \is_string($mode) && $mode !== '' ? $mode : self::PARTIAL_REFUND_REPORTING_PAYMENT_STATUS;
   }
 
   private function getPaymentState(string $orderId): ?string
@@ -1027,11 +1344,20 @@ class TransactionSubscriber implements EventSubscriberInterface
   {
     $criteria = new Criteria();
     $criteria->addFilter(new EqualsFilter('orderId', $orderId));
-    $criteria->addAssociation('lineItems');
+    $criteria->addAssociation('lineItems.state');
     $criteria->addAssociation('state');
     $criteria->addSorting(new FieldSorting('createdAt', FieldSorting::ASCENDING));
 
     return $this->orderReturnRepository->search($criteria, $this->context)->getEntities();
+  }
+
+  private function loadOrderReturn(string $returnId): mixed
+  {
+    $criteria = new Criteria([$returnId]);
+    $criteria->addAssociation('lineItems.state');
+    $criteria->addAssociation('state');
+
+    return $this->orderReturnRepository->search($criteria, $this->context)->get($returnId);
   }
 
   private function getRefundCalculations(OrderEntity $order): array
@@ -1048,7 +1374,10 @@ class TransactionSubscriber implements EventSubscriberInterface
     return \is_array($reportedRefunds) ? $reportedRefunds : [];
   }
 
-  private function markRefundReported(OrderEntity $order, string $returnId, string $transactionId, array $quantities): void
+  /**
+   * @param array|null $refund the refund as TaxJar stored it, kept so a later full refund can subtract it
+   */
+  private function markRefundReported(OrderEntity $order, string $returnId, string $transactionId, array $quantities, mixed $refund = null): void
   {
     $reportedRefunds = $this->getReportedRefunds($order);
     $reportedRefund = $reportedRefunds[$returnId] ?? [];
@@ -1064,7 +1393,20 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     $reportedAt = (new \DateTimeImmutable())->format(\DATE_ATOM);
-    $transactions[] = ['transactionId' => $transactionId, 'reportedAt' => $reportedAt, 'lineItems' => $quantities];
+    $transaction = ['transactionId' => $transactionId, 'reportedAt' => $reportedAt, 'lineItems' => $quantities];
+    if (\is_array($refund)) {
+      $transaction['refund'] = [
+        'amount' => $refund['amount'] ?? null,
+        'shipping' => $refund['shipping'] ?? null,
+        'sales_tax' => $refund['sales_tax'] ?? null,
+        'line_items' => array_map(static fn (mixed $lineItem): array => [
+          'product_identifier' => $lineItem['product_identifier'] ?? null,
+          'quantity' => $lineItem['quantity'] ?? 0,
+          'sales_tax' => $lineItem['sales_tax'] ?? 0,
+        ], array_values(array_filter(\is_array($refund['line_items'] ?? null) ? $refund['line_items'] : [], 'is_array'))),
+      ];
+    }
+    $transactions[] = $transaction;
 
     $reportedRefunds[$returnId] = [
       'transactionId' => $reportedRefund['transactionId'] ?? $transactionId,
@@ -1088,6 +1430,113 @@ class TransactionSubscriber implements EventSubscriberInterface
     $order->setCustomFields(array_merge($order->getCustomFields() ?? [], [
       TaxJarCalculation::ORDER_REPORTED_REFUNDS_CUSTOM_FIELD => $reportedRefunds,
     ]));
+  }
+
+  /**
+   * The partial refunds TaxJar holds for the order, read back from TaxJar. Null when a lookup failed.
+   */
+  private function getReportedPartialRefunds(OrderEntity $order): ?array
+  {
+    $reportedRefunds = $this->getReportedRefunds($order);
+    $returnIds = array_keys($reportedRefunds + $this->getRefundCalculations($order));
+    if ($this->orderReturnRepository !== null) {
+      foreach ($this->loadOrderReturns($order->getId()) as $orderReturn) {
+        $returnIds[] = $orderReturn->getId();
+      }
+    }
+
+    $transactionIds = [];
+    $storedRefunds = [];
+    foreach (array_unique(array_map('strval', $returnIds)) as $returnId) {
+      // Every version reported the first refund of a return under this id, also before taxjar_reported_refunds existed.
+      $transactionIds[$this->getRefundTransactionId($order, $returnId, 1)] = $returnId;
+
+      foreach ($reportedRefunds[$returnId]['transactions'] ?? [] as $transaction) {
+        if (!empty($transaction['transactionId'])) {
+          $transactionIds[(string) $transaction['transactionId']] = $returnId;
+
+          if (\is_array($transaction['refund'] ?? null)) {
+            $storedRefunds[(string) $transaction['transactionId']] = $transaction['refund'];
+          }
+        }
+      }
+    }
+
+    $partialRefunds = [];
+    foreach ($transactionIds as $transactionId => $returnId) {
+      // The refund TaxJar returned when it accepted the partial refund, kept in taxjar_reported_refunds.
+      if (isset($storedRefunds[$transactionId])) {
+        $partialRefunds[] = $storedRefunds[$transactionId];
+        continue;
+      }
+
+      // Refunds reported before the refund was kept on the order are looked up. The sandbox answers every
+      // lookup, also for unknown ids, with the same sample refund, so there is nothing to look up there.
+      if ($this->_isSandboxMode()) {
+        continue;
+      }
+
+      $refund = $this->lookupRefund($order, (string) $transactionId, $returnId);
+
+      if ($refund === false) {
+        return null;
+      }
+
+      if ($refund !== null) {
+        $partialRefunds[] = $refund;
+      }
+    }
+
+    return $partialRefunds;
+  }
+
+  /**
+   * Takes the partial refunds off the order, so a full refund after them reports only what is left and the
+   * order nets to zero in TaxJar. Line items are matched by product number, as in mapRefundLineItems().
+   */
+  private function subtractPartialRefunds(OrderEntity $order, array $orderDetail, array $partialRefunds): array
+  {
+    $refunded = ['amount' => 0.0, 'shipping' => 0.0, 'sales_tax' => 0.0];
+    $refundedQuantities = [];
+    $refundedTaxes = [];
+
+    foreach ($partialRefunds as $refund) {
+      foreach ($refunded as $key => $total) {
+        $refunded[$key] = $total + abs((float) ($refund[$key] ?? 0));
+      }
+
+      foreach ($refund['line_items'] ?? [] as $refundLineItem) {
+        $productNumber = (string) ($refundLineItem['product_identifier'] ?? '');
+        $refundedQuantities[$productNumber] = ($refundedQuantities[$productNumber] ?? 0) + abs((int) ($refundLineItem['quantity'] ?? 0));
+        $refundedTaxes[$productNumber] = ($refundedTaxes[$productNumber] ?? 0.0) + abs((float) ($refundLineItem['sales_tax'] ?? 0));
+      }
+    }
+
+    foreach ($refunded as $key => $total) {
+      $orderDetail[$key] = max(0.0, round((float) ($orderDetail[$key] ?? 0) - $total, 2));
+    }
+
+    // getLineItems() builds one entry per product line item, in the same order.
+    $orderLineItems = array_values($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE)->getElements() ?? []);
+    $lineItems = [];
+
+    foreach ($orderDetail['line_items'] ?? [] as $index => $lineItem) {
+      $productNumber = (string) (($orderLineItems[$index] ?? null)?->getPayload()['productNumber'] ?? $lineItem['product_identifier']);
+      $quantity = min((int) $lineItem['quantity'], $refundedQuantities[$productNumber] ?? 0);
+      $salesTax = min((float) $lineItem['sales_tax'], $refundedTaxes[$productNumber] ?? 0.0);
+      $refundedQuantities[$productNumber] = ($refundedQuantities[$productNumber] ?? 0) - $quantity;
+      $refundedTaxes[$productNumber] = ($refundedTaxes[$productNumber] ?? 0.0) - $salesTax;
+
+      if ((int) $lineItem['quantity'] > $quantity) {
+        $lineItem['quantity'] = (int) $lineItem['quantity'] - $quantity;
+        $lineItem['sales_tax'] = round((float) $lineItem['sales_tax'] - $salesTax, 2);
+        $lineItems[] = $lineItem;
+      }
+    }
+
+    $orderDetail['line_items'] = $lineItems;
+
+    return $orderDetail;
   }
 
   /**
@@ -1123,7 +1572,36 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $orderId = $this->getExistTransactionId($orderId, $order) ?: $this->getTransactionId($order);
 
-      $orderDetail = $this->toRefundPayload($this->getOrderDetail($order));
+      $partialRefunds = $this->getReportedPartialRefunds($order);
+      if ($partialRefunds === null) {
+        // Without them the whole order would be refunded, counting the partial refunds a second time.
+        $this->logOrderTransactionDiagnostic('state_event_skipped', [
+          'shopwareEventName' => $event->getName(),
+          'orderId' => $event->getOrderId(),
+          'orderNumber' => $order->getOrderNumber(),
+          'earlyReturnReason' => 'partial_refund_lookup_failed',
+        ], 'error');
+
+        return;
+      }
+
+      $orderDetail = $this->getOrderDetail($order);
+      if ($partialRefunds !== []) {
+        $orderDetail = $this->subtractPartialRefunds($order, $orderDetail, $partialRefunds);
+
+        if ($orderDetail['amount'] <= 0 && $orderDetail['shipping'] <= 0 && $orderDetail['sales_tax'] <= 0) {
+          $this->logOrderTransactionDiagnostic('state_event_skipped', [
+            'shopwareEventName' => $event->getName(),
+            'orderId' => $event->getOrderId(),
+            'orderNumber' => $order->getOrderNumber(),
+            'earlyReturnReason' => 'fully_refunded_by_partial_refunds',
+          ]);
+
+          return;
+        }
+      }
+
+      $orderDetail = $this->toRefundPayload($orderDetail);
       $orderDetail['transaction_reference_id'] = $this->getTransactionId($order);
       $orderDetail['transaction_id'] = $orderId . '_refund';
 
@@ -1131,7 +1609,7 @@ class TransactionSubscriber implements EventSubscriberInterface
 
       $endpointUrl = $this->_getApiEndPoint() . '/transactions/refunds';
 
-      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, 'POST', $endpointUrl, $orderDetail, ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
+      $response = $this->callTaxJar(self::ORDER_REFUND_REQUEST_TYPE, TaxJarApiCallEvent::OPERATION_REFUND, 'POST', $endpointUrl, $orderDetail, ['orderId' => $event->getOrderId(), 'orderNumber' => $order->getOrderNumber()]);
 
       $logInfo['response'] = $response['body'];
       $this->logRequestResponse($logInfo);
@@ -1199,7 +1677,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       $diagnosticContext['apiCallReached'] = true;
       $this->logOrderTransactionDiagnostic('taxjar_create_order_api_call_reached', $diagnosticContext);
 
-      $response = $this->callTaxJar($requestType, 'POST', $apiEndpointUrl, $orderDetail, $diagnosticContext);
+      $response = $this->callTaxJar($requestType, TaxJarApiCallEvent::OPERATION_ORDER_CREATE, 'POST', $apiEndpointUrl, $orderDetail, $diagnosticContext);
       $succeeded = ($response['success'] ?? false) === true;
 
       $this->logOrderTransactionDiagnostic('taxjar_create_order_api_response', array_merge($diagnosticContext, [
@@ -1223,9 +1701,11 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
   }
 
-  private function callTaxJar(string $operation, string $method, string $endpointUrl, array $body, array $context = []): array
+  private function callTaxJar(string $operation, string $apiOperation, string $method, string $endpointUrl, array $body, array $context = []): array
   {
+    $startedAt = microtime(true);
     $response = $this->clientApiService->sendRequest($method, $endpointUrl, $this->getHeaders(), $body);
+    $this->dispatchApiCall($apiOperation, $method, $endpointUrl, $body, $response, $startedAt, $context['orderId'] ?? null, $context['returnId'] ?? null);
 
     if (($response['success'] ?? false) !== true) {
       $this->logOrderTransactionDiagnostic('taxjar_operation_failed', $context + [
@@ -1238,6 +1718,31 @@ class TransactionSubscriber implements EventSubscriberInterface
     }
 
     return $response;
+  }
+
+  /**
+   * @param array $response ClientApiService::sendRequest() result
+   */
+  private function dispatchApiCall(string $apiOperation, string $method, string $endpointUrl, array $body, array $response, float $startedAt, ?string $orderId, ?string $returnId = null): void
+  {
+    $statusCode = $response['status'] ?? null;
+
+    $this->apiCallEventDispatcher->dispatch(new TaxJarApiCallEvent(
+      operation: $apiOperation,
+      method: $method,
+      endpoint: $endpointUrl,
+      request: $body,
+      statusCode: $statusCode,
+      // Without a status TaxJar never answered, and ClientApiService fills the body with the transport error.
+      responseBody: $statusCode !== null ? ($response['body'] ?? null) : null,
+      error: $response['error'] ?? null,
+      sandbox: (bool) $this->_isSandboxMode(),
+      startedAt: $startedAt,
+      context: $this->context,
+      salesChannelId: $this->salesChannelId,
+      orderId: $orderId,
+      returnId: $returnId,
+    ));
   }
 
   private function logTaxJarException(string $operation, \Throwable $e, array $context = []): void
@@ -1562,23 +2067,8 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
     }
 
-    $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
-    $getTaxJarCustomerConfigs = $this->_taxjarCustomers();
-    if($getTaxJarCustomerConfigs){
-      $taxjarCustomerId = $order->getOrderCustomer()->getCustomerNumber();
-    }
-    else{
-      $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
-      $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
-    }
-
-    $customerGroupId = $order->getOrderCustomer()?->getCustomer()?->getGroupId();
-
-    $groupsToBeExempted = $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId) ?? [];
-
-    $isExempt =
-        (!empty($taxjarCustomerId) && !empty($exType))
-        || in_array($customerGroupId, $groupsToBeExempted, true);
+    ['customerId' => $taxjarCustomerId, 'exemptionType' => $exemptionType] = $this->getCustomerExemption($order);
+    $isExempt = $exemptionType !== null;
 
     $lineItems = $this->getLineItems($order, $isExempt);
 
@@ -1603,13 +2093,40 @@ class TransactionSubscriber implements EventSubscriberInterface
       ]
     );
 
-      if (!empty($taxjarCustomerId) && !empty($exType)) {
-          $payload['exemption_type'] = $exType;
-      } elseif (in_array($customerGroupId, $groupsToBeExempted, true)){
-          $payload['exemption_type'] = 'other';
+      if ($exemptionType !== null) {
+          $payload['exemption_type'] = $exemptionType;
       }
 
       return $payload;
+  }
+
+  /**
+   * The TaxJar customer id and exemption type of the order, as sent with the order commit.
+   *
+   * @return array{customerId: mixed, exemptionType: mixed}
+   */
+  private function getCustomerExemption(OrderEntity $order): array
+  {
+    $customerCustomFields = $order->getOrderCustomer()->getCustomFields() ?? [];
+    $exType = null;
+    if ($this->_taxjarCustomers()) {
+      $taxjarCustomerId = $order->getOrderCustomer()->getCustomerNumber();
+    } else {
+      $taxjarCustomerId = $customerCustomFields['taxjar_customer_id'] ?? null;
+      $exType = $customerCustomFields['taxjar_exemption_type'] ?? null;
+    }
+
+    $customerGroupId = $order->getOrderCustomer()?->getCustomer()?->getGroupId();
+    $groupsToBeExempted = $this->systemConfigService->get('solu1TaxJar.setting.exemptCustomerGroup', $this->salesChannelId) ?? [];
+
+    $exemptionType = null;
+    if (!empty($taxjarCustomerId) && !empty($exType)) {
+      $exemptionType = $exType;
+    } elseif (in_array($customerGroupId, $groupsToBeExempted, true)) {
+      $exemptionType = 'other';
+    }
+
+    return ['customerId' => $taxjarCustomerId, 'exemptionType' => $exemptionType];
   }
 
   private function getLineItems(OrderEntity $order, bool $isExempt): array

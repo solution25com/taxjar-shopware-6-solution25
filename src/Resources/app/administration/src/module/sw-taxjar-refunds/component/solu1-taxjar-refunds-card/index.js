@@ -33,6 +33,7 @@ Component.register('solu1-taxjar-refunds-card', {
             responseModalContent: '',
             isLoading: false,
             isSending: false,
+            sendingReturnId: null,
         };
     },
 
@@ -107,6 +108,40 @@ Component.register('solu1-taxjar-refunds-card', {
                 });
             }).finally(() => {
                 this.isSending = false;
+            });
+        },
+
+        canSendReturn(orderReturn) {
+            return !orderReturn.sendBlockedReason
+                && !this.isSending
+                && this.sendingReturnId === null
+                && this.acl.can('order.editor');
+        },
+
+        sendReturn(orderReturn) {
+            this.sendingReturnId = orderReturn.id;
+
+            return this.taxJarRefundApiService.sendReturn(orderReturn.id).then((result) => {
+                if (result.status === 'nothing_pending') {
+                    this.createNotificationInfo({
+                        message: this.$t('solu1-taxjar-refunds.notification.returnNothingSent', { number: orderReturn.returnNumber }),
+                    });
+
+                    return;
+                }
+
+                this.createNotificationSuccess({
+                    message: this.$t('solu1-taxjar-refunds.notification.returnSent', { number: orderReturn.returnNumber }),
+                });
+            }).catch((error) => {
+                this.createNotificationError({
+                    message: error?.response?.status === 502
+                        ? this.$t('solu1-taxjar-refunds.notification.sendFailed', { returns: `#${orderReturn.returnNumber}` })
+                        : error?.response?.data?.message || this.$t('solu1-taxjar-refunds.notification.sendError'),
+                });
+            }).finally(() => {
+                this.sendingReturnId = null;
+                this.loadReport();
             });
         },
 

@@ -4,6 +4,7 @@ namespace solu1TaxJar\Subscriber;
 use Shopware\Core\Checkout\Customer\CustomerEntity;
 use Shopware\Core\Checkout\Customer\CustomerEvents;
 use Shopware\Core\Framework\Api\Context\AdminApiSource;
+use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Event\EntityWrittenEvent;
@@ -13,6 +14,8 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
+use solu1TaxJar\Core\TaxJar\Event\TaxJarApiCallEvent;
+use solu1TaxJar\Service\ApiCallEventDispatcher;
 use Throwable;
 
 class CustomerSubscriber implements EventSubscriberInterface
@@ -24,18 +27,21 @@ class CustomerSubscriber implements EventSubscriberInterface
     private HttpClientInterface $httpClient;
     private LoggerInterface $logger;
     private SystemConfigService $systemConfigService;
+    private ApiCallEventDispatcher $apiCallEventDispatcher;
     private ?string $salesChannelId;
 
     public function __construct(
         SystemConfigService $systemConfigService,
         EntityRepository $customerRepository,
         HttpClientInterface $httpClient,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        ApiCallEventDispatcher $apiCallEventDispatcher
     ) {
         $this->systemConfigService = $systemConfigService;
         $this->customerRepository = $customerRepository;
         $this->httpClient = $httpClient;
         $this->logger = $logger;
+        $this->apiCallEventDispatcher = $apiCallEventDispatcher;
         $this->salesChannelId = null;
     }
 
@@ -114,15 +120,22 @@ class CustomerSubscriber implements EventSubscriberInterface
                     'X-CSRF-Token' => $this->_taxJarApiToken(),
                 ];
 
+                $method = $isNewCustomer ? 'POST' : 'PUT';
+                $url = $isNewCustomer ? $baseUrl : $baseUrl . $customerId;
+                $startedAt = microtime(true);
+                $dispatched = false;
+
                 try {
-                    $method = $isNewCustomer ? 'POST' : 'PUT';
-                    $url = $isNewCustomer ? $baseUrl : $baseUrl . $customerId;
                     $this->logger->info('TaxJar Customer Subscriber', [$method, $url, $payload]);
 
                     $response = $this->httpClient->request($method, $url, [
                         'headers' => $headers,
                         'json' => $payload,
                     ]);
+
+                    $statusCode = $response->getStatusCode();
+                    $this->dispatchApiCall($context, $isNewCustomer, $method, $url, $payload, $startedAt, $statusCode, $response->getContent(false), $statusCode >= 300 ? sprintf('HTTP %d returned', $statusCode) : null, $customer->getId());
+                    $dispatched = true;
 
                     $this->logger->info('TaxJar Customer Response', $response->toArray());
 
@@ -141,6 +154,10 @@ class CustomerSubscriber implements EventSubscriberInterface
                         ]);
                     }
                 } catch (Throwable $e) {
+                    if (!$dispatched) {
+                        $this->dispatchApiCall($context, $isNewCustomer, $method, $url, $payload, $startedAt, null, null, $e->getMessage(), $customer->getId());
+                    }
+
                     $this->logger->error('TaxJar Subscriber: Failed to sync customer {customerId} to TaxJar: {message}', [
                         'customerId' => $customerId,
                         'message' => $e->getMessage(),
@@ -160,6 +177,34 @@ class CustomerSubscriber implements EventSubscriberInterface
                 'customerIds' => $customerIds,
             ]);
         }
+    }
+
+    private function dispatchApiCall(
+        Context $context,
+        bool $isNewCustomer,
+        string $method,
+        string $url,
+        array $payload,
+        float $startedAt,
+        ?int $statusCode,
+        ?string $responseBody,
+        ?string $error,
+        string $customerId
+    ): void {
+        $this->apiCallEventDispatcher->dispatch(new TaxJarApiCallEvent(
+            operation: $isNewCustomer ? TaxJarApiCallEvent::OPERATION_CUSTOMER_CREATE : TaxJarApiCallEvent::OPERATION_CUSTOMER_UPDATE,
+            method: $method,
+            endpoint: $url,
+            request: $payload,
+            statusCode: $statusCode,
+            responseBody: $responseBody,
+            error: $error,
+            sandbox: $this->_isSandboxMode(),
+            startedAt: $startedAt,
+            context: $context,
+            salesChannelId: $this->salesChannelId,
+            customerId: $customerId,
+        ));
     }
 
     private function _taxJarApiToken(): ?string

@@ -20,9 +20,12 @@ use Shopware\Core\System\SalesChannel\SalesChannelContext;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use solu1TaxJar\Core\Tax\TaxCalculationResultAwareInterface;
 use solu1TaxJar\Core\Tax\TaxCalculatorInterface;
+use solu1TaxJar\Core\TaxJar\Event\TaxJarApiCallEvent;
+use solu1TaxJar\Service\ApiCallEventDispatcher;
 use Symfony\Component\Cache\Adapter\TagAwareAdapterInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
-class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInterface
+class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInterface, ResetInterface
 {
     private const CACHE_ID = 's25_tax_jar_response_';
 
@@ -78,6 +81,10 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
 
     private ?array $lastCalculation = null;
 
+    private array $apiFetchedCacheIds = [];
+
+    private ApiCallEventDispatcher $apiCallEventDispatcher;
+
     /**
      * @param SystemConfigService $systemConfigService
      * @param EntityRepository $taxJarLogRepository
@@ -89,7 +96,8 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
         EntityRepository       $taxJarLogRepository,
         EntityRepository       $productRepository,
         CacheItemPoolInterface $cache,
-        LoggerInterface        $logger
+        LoggerInterface        $logger,
+        ApiCallEventDispatcher $apiCallEventDispatcher
     ) {
         $this->restClient = new Client(['connect_timeout' => self::API_CONNECT_TIMEOUT, 'timeout' => self::API_REQUEST_TIMEOUT]);
         $this->systemConfigService = $systemConfigService;
@@ -97,6 +105,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
         $this->productRepository = $productRepository;
         $this->cache = $cache;
         $this->logger = $logger;
+        $this->apiCallEventDispatcher = $apiCallEventDispatcher;
     }
 
     public function supports(string $baseClass): bool
@@ -114,6 +123,12 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
     public function getLastCalculation(): ?array
     {
         return $this->lastCalculation;
+    }
+
+    public function reset(): void
+    {
+        $this->lastCalculation = null;
+        $this->apiFetchedCacheIds = [];
     }
 
     /**
@@ -191,7 +206,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
             $addressFallback = false;
 
             if (!empty($storedResponse)) {
-                $source = TaxJarCalculation::SOURCE_CACHE;
+                $source = isset($this->apiFetchedCacheIds[$cacheId]) ? TaxJarCalculation::SOURCE_API : TaxJarCalculation::SOURCE_CACHE;
 
                 if (!empty($storedResponse['taxjar_address_mismatch'])) {
                     $this->recordCalculation(TaxJarCalculation::STATUS_ADDRESS_MISMATCH, 'zip_state_mismatch', $source, false, $request);
@@ -214,7 +229,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
 
                     $fallbackRequest = $this->buildAddressFallbackRequest($request);
 
-                    $fallbackTaxInformation = $this->_getTaxRateWithHttpRequest($context, $fallbackRequest);
+                    $fallbackTaxInformation = $this->_getTaxRateWithHttpRequest($context, $fallbackRequest, TaxJarApiCallEvent::OPERATION_TAX_CALCULATION_ADDRESS_FALLBACK);
 
                     if (isset($fallbackTaxInformation['breakdown']['line_items'])) {
                         $this->logAddressMismatch($context, $fallbackRequest, $fallbackTaxInformation, 'fallback_success');
@@ -223,6 +238,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
                             $cacheId,
                             $context->getCustomer()?->getId()
                         );
+                        $this->apiFetchedCacheIds[$cacheId] = true;
                         $taxInformation = $fallbackTaxInformation;
                         $appliedRequest = $fallbackRequest;
                         $addressFallback = true;
@@ -466,7 +482,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
      * @throws InvalidArgumentException
      * @throws GuzzleException
      */
-    private function _getTaxRateWithHttpRequest(SalesChannelContext $context, array $orderDetail = [])
+    private function _getTaxRateWithHttpRequest(SalesChannelContext $context, array $orderDetail = [], string $operation = TaxJarApiCallEvent::OPERATION_TAX_CALCULATION)
     {
         $response = [];
         $debugMode = $this->isDebugModeOn();
@@ -492,11 +508,23 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
                 'type' => self::REQUEST_TYPE,
             ];
         }
+        $startedAt = microtime(true);
         try {
             $response = $this->restClient->send($request);
         } catch (\Throwable $e) {
             $hasResponse = $e instanceof BadResponseException;
             $responseBodyAsString = $hasResponse ? $e->getResponse()->getBody()->getContents() : (string) json_encode(['error' => $e->getMessage()]);
+
+            $this->dispatchApiCall(
+                $context,
+                $operation,
+                $request->getUri()->__toString(),
+                $orderDetail,
+                $startedAt,
+                $hasResponse ? $e->getResponse()->getStatusCode() : null,
+                $hasResponse ? $responseBodyAsString : null,
+                $e->getMessage()
+            );
 
             $this->logger->error('TaxJar tax calculation failed', [
                 'salesChannelId' => $this->salesChannelId,
@@ -513,8 +541,10 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
 
             return ['error' => $hasResponse ? json_decode($responseBodyAsString, true) : ['message' => $e->getMessage()]];
         }
+        $statusCode = $response->getStatusCode();
         try {
             $response = $response->getBody()->getContents();
+            $this->dispatchApiCall($context, $operation, $request->getUri()->__toString(), $orderDetail, $startedAt, $statusCode, $response, null);
             if ($debugMode) {
                 $logInfo['response'] = $response;
                 $this->logRequestResponse($logInfo, $context);
@@ -526,6 +556,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
                 $cacheId,
                 $context->getCustomer()?->getId()
             );
+            $this->apiFetchedCacheIds[$cacheId] = true;
             if (isset($response['tax'])) {
                 return $response['tax'];
             }
@@ -534,6 +565,32 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
             $response['error'] = $e->getMessage();
         }
         return $response;
+    }
+
+    private function dispatchApiCall(
+        SalesChannelContext $context,
+        string $operation,
+        string $endpoint,
+        array $request,
+        float $startedAt,
+        ?int $statusCode,
+        ?string $responseBody,
+        ?string $error
+    ): void {
+        $this->apiCallEventDispatcher->dispatch(new TaxJarApiCallEvent(
+            operation: $operation,
+            method: 'POST',
+            endpoint: $endpoint,
+            request: $request,
+            statusCode: $statusCode,
+            responseBody: $responseBody,
+            error: $error,
+            sandbox: (bool) $this->_isSandboxMode(),
+            startedAt: $startedAt,
+            context: $context->getContext(),
+            salesChannelId: $this->salesChannelId,
+            customerId: $context->getCustomer()?->getId(),
+        ));
     }
 
     /**

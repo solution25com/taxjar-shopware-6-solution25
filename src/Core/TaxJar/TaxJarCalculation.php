@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace solu1TaxJar\Core\TaxJar;
 
 use Shopware\Core\Framework\Struct\ArrayStruct;
+use Shopware\Core\System\SystemConfig\SystemConfigService;
 
 final class TaxJarCalculation
 {
+    public const CONFIG_STORE_IN_ORDER = 'solu1TaxJar.setting.storeCalculationInOrder';
+
     public const EXTENSION_NAME = 'taxjar_calculation';
 
     public const ORDER_CUSTOM_FIELD = 'taxjar_calculation';
@@ -33,6 +36,15 @@ final class TaxJarCalculation
     public const SOURCE_API = 'api';
 
     public const SOURCE_CACHE = 'cache';
+
+    /**
+     * Whether taxjar_calculation and taxjar_refund_calculations are written to the order custom fields.
+     * Defaults from setting.xml are never saved on install or update, so an unset value means the default: on.
+     */
+    public static function isStoredInOrder(SystemConfigService $systemConfigService, ?string $salesChannelId): bool
+    {
+        return (bool) ($systemConfigService->get(self::CONFIG_STORE_IN_ORDER, $salesChannelId) ?? true);
+    }
 
     public static function entry(
         string $status,

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.5.0] - 2026-10-12
+
+### Added
+- TaxJar refunds card on the order detail page (requires Shopware Commercial return management). It shows each return with its returned quantities, whether it has been sent to TaxJar, and TaxJar's response, and lets you send all pending refunds with one button
+- "Send return to TaxJar" button for individual returns, with a matching Admin API action. Only completed returns are sent, and returns that were already reported are not sent again
+- New setting "Send partial refunds to TaxJar" with three options: on payment status change (previous behavior), manually from the TaxJar refunds card, or when a return is marked as Done
+- New setting "Tax on partial refunds" (per sales channel): calculate with TaxJar (default) or use the tax charged at checkout
+- New setting "Store TaxJar calculation data on the order" (enabled by default, per sales channel)
+- New event dispatched after every TaxJar API request, so other extensions can store requests and responses. It never contains the API token, and errors in listeners do not affect tax calculation or TaxJar transactions
+
+### Changed
+- Payment status "Refunded (partially)" now sends all returns that have not yet been reported to TaxJar, instead of a single return
+
+### Fixed
+- A full refund after partial refunds no longer reports the whole order again. Only the remaining amount is sent, so the order nets to zero in TaxJar
+- Partial refunds of tax-exempt orders no longer report sales tax that was never collected
+- Looking up existing refunds in TaxJar no longer fails, which also affected detecting refunds reported by earlier versions
+
+Tax amounts charged on carts and orders are unchanged.
+
 ## [v1.4.1] - 2026-10-08
 
 ### This release includes

@@ -26,7 +26,7 @@
                 {{ $t(`solu1-taxjar-refunds.status.${orderReturn.status}`) }}
             </sw-label>
             <mt-button
-                v-if="orderReturn.sendableQuantity > 0"
+                v-if="orderReturn.sendableQuantity > 0 || orderReturn.pendingShipping > 0"
                 class="solu1-taxjar-refunds-card__send-return"
                 variant="secondary"
                 size="x-small"
@@ -75,6 +75,23 @@
                         <span v-else>–</span>
                     </td>
                 </tr>
+                <tr v-if="orderReturn.shipping > 0">
+                    <td>{{ $t('solu1-taxjar-refunds.card.shippingRow') }}</td>
+                    <td>{{ formatAmount(orderReturn.shipping) }}</td>
+                    <td>{{ formatAmount(orderReturn.reportedShipping) }}</td>
+                    <td :class="{ 'is--pending': orderReturn.pendingShipping > 0 }">{{ formatAmount(orderReturn.pendingShipping) }}</td>
+                    <td>
+                        <mt-button
+                            variant="secondary"
+                            v-if="orderReturn.shippingTransactionIds.length > 0"
+                            size="x-small"
+                            @click="openResponseModal({ transactionIds: orderReturn.shippingTransactionIds })"
+                        >
+                            {{ $t('solu1-taxjar-refunds.card.viewButton') }}
+                        </mt-button>
+                        <span v-else>–</span>
+                    </td>
+                </tr>
             </tbody>
         </table>
 
@@ -86,7 +103,7 @@
         </p>
 
         <p
-            v-if="orderReturn.sendableQuantity > 0 && orderReturn.sendBlockedReason === 'returnState'"
+            v-if="(orderReturn.sendableQuantity > 0 || orderReturn.pendingShipping > 0) && orderReturn.sendBlockedReason === 'returnState'"
             class="solu1-taxjar-refunds-card__hint"
         >
             {{ $t('solu1-taxjar-refunds.card.sendBlocked.returnState') }}
@@ -154,7 +171,7 @@
             {{ $t(`solu1-taxjar-refunds.card.sendBlocked.${report.sendBlockedReason}`) }}
         </span>
         <span
-            v-else-if="report.pendingQuantity === 0"
+            v-else-if="!hasPending"
             class="solu1-taxjar-refunds-card__hint"
         >
             {{ $t('solu1-taxjar-refunds.card.nothingPending') }}

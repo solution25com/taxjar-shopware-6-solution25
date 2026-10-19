@@ -23,7 +23,8 @@
                 "fullRefund": "Nach einer vollständigen Erstattung nicht verfügbar. Die Bestellung wurde bereits als vollständig erstattet an TaxJar gemeldet.",
                 "returnState": "Kann an TaxJar gesendet werden, sobald der Retourenstatus Abgeschlossen ist."
             },
-            "nothingPending": "Alle retournierten Artikel sind an TaxJar gemeldet."
+            "nothingPending": "Alle retournierten Artikel sind an TaxJar gemeldet.",
+            "shippingRow": "Versandkosten"
         },
         "status": {
             "sent": "Gesendet",

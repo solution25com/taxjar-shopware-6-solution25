@@ -43,7 +43,11 @@ Component.register('solu1-taxjar-refunds-card', {
         },
 
         canSend() {
-            return !!this.report?.canSend && this.report.pendingQuantity > 0 && this.acl.can('order.editor');
+            return !!this.report?.canSend && this.hasPending && this.acl.can('order.editor');
+        },
+
+        hasPending() {
+            return this.report?.pendingQuantity > 0 || this.report?.pendingShipping > 0;
         },
     },
 
@@ -143,6 +147,10 @@ Component.register('solu1-taxjar-refunds-card', {
                 this.sendingReturnId = null;
                 this.loadReport();
             });
+        },
+
+        formatAmount(value) {
+            return Utils.format.currency(Number(value ?? 0), this.order?.currency?.isoCode ?? 'EUR');
         },
 
         openResponseModal(item) {

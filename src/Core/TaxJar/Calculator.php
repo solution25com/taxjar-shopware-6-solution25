@@ -352,7 +352,8 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
                 continue;
             }
 
-            $productId = $productInfo['id'];
+            $productId = $productInfo['_productId'] ?? $productInfo['id'];
+            unset($lineItems[$key]['_productId']);
             $quantity  = (int) $lineItems[$key]['quantity'];
 
             $product = $this->getProduct($productId, $context);
@@ -370,7 +371,7 @@ class Calculator implements TaxCalculatorInterface, TaxCalculationResultAwareInt
             $unitPrice    = (float) $lineItems[$key]['unit_price'];
             $lineSubtotal = $unitPrice * $quantity;
 
-            $lineDiscount = $lineItemDiscounts[$productId] ?? 0.0;
+            $lineDiscount = $lineItemDiscounts[$productInfo['id']] ?? $lineItemDiscounts[$productId] ?? 0.0;
             if ($lineDiscount > 0) {
                 $lineItems[$key]['discount'] = round($lineDiscount, 2);
             }

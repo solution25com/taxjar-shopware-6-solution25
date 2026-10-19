@@ -439,10 +439,10 @@ class TransactionSubscriber implements EventSubscriberInterface
    * @param array $pendingItems
    * @return array|null
    */
-  private function calculatePartialRefundTax(OrderEntity $order, string $returnId, string $transactionId, array $pendingItems): ?array
+  private function calculatePartialRefundTax(OrderEntity $order, string $returnId, string $transactionId, array $pendingItems, float $pendingShipping = 0.0): ?array
   {
     try {
-      if ($pendingItems === []) {
+      if ($pendingItems === [] && $pendingShipping <= 0.0) {
         return null;
       }
 
@@ -537,14 +537,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         $state = $countryParts[1] ?? null;
       }
 
-      $originalTotal = 0;
-      foreach ($order->getLineItems()?->filterByType(LineItem::PRODUCT_LINE_ITEM_TYPE) as $lineItem) {
-        $originalTotal += $lineItem->getUnitPrice() * $lineItem->getQuantity();
-      }
-      
-      if ($originalTotal > 0) {
-        $totalShipping = ($totalAmount / $originalTotal) * $order->getShippingTotal();
-      }
+      $totalShipping = $pendingShipping;
 
       if ($isExempt && !$useCheckoutTax) {
         // Exempt orders are committed without sales tax, so their refunds return none either.
@@ -859,7 +852,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         'to_state' => $state,
         'to_city' => $destinationAddress?->getCity(),
         'to_street' => $destinationAddress?->getStreet(),
-        'amount' => -abs($refundData['total_amount']),
+        'amount' => -abs($refundData['total_amount'] + $refundData['total_shipping']),
         'shipping' => -abs($refundData['total_shipping']),
         'sales_tax' => -abs($refundData['total_tax']),
         'line_items' => $refundLineItems
@@ -914,6 +907,7 @@ class TransactionSubscriber implements EventSubscriberInterface
     $reportedRefunds = $this->getReportedRefunds($order);
     $refundCalculations = $this->getRefundCalculations($order);
     $pendingQuantity = 0;
+    $pendingShipping = 0.0;
     $returns = [];
 
     foreach ($this->loadOrderReturns($orderId) as $orderReturn) {
@@ -955,12 +949,23 @@ class TransactionSubscriber implements EventSubscriberInterface
       }
 
       $returnPending = array_sum(array_column($items, 'pendingQuantity'));
+      $returnShipping = $this->getReturnShipping($orderReturn);
+      $returnPendingShipping = $this->getPendingReturnShipping($order, $orderReturn);
+      $pendingShipping += $returnPendingShipping;
+      $nothingSent = array_sum(array_column($items, 'reportedQuantity')) === 0 && $returnShipping - $returnPendingShipping <= 0.0;
 
       $returns[] = [
         'id' => $returnId,
         'returnNumber' => $orderReturn->getReturnNumber(),
         'state' => $orderReturn->getState()?->getTechnicalName(),
-        'status' => $returnPending === 0 ? 'sent' : (array_sum(array_column($items, 'reportedQuantity')) === 0 ? 'pending' : 'partial'),
+        'status' => $returnPending === 0 && $returnPendingShipping <= 0.0 ? 'sent' : ($nothingSent ? 'pending' : 'partial'),
+        'shipping' => $returnShipping,
+        'reportedShipping' => round($returnShipping - $returnPendingShipping, 2),
+        'pendingShipping' => $returnPendingShipping,
+        'shippingTransactionIds' => array_values(array_column(array_filter(
+          $transactions,
+          static fn (array $transaction): bool => abs((float) ($transaction['shipping'] ?? $transaction['refund']['shipping'] ?? 0.0)) > 0.0
+        ), 'transactionId')),
         'verified' => \is_array($reportedRefund['lineItems'] ?? null) || ($reportedRefund === null && !isset($refundCalculations[$returnId])),
         'items' => $items,
         'transactions' => array_values($transactions),
@@ -977,6 +982,7 @@ class TransactionSubscriber implements EventSubscriberInterface
       'canSend' => $sendBlockedReason === null,
       'sendBlockedReason' => $sendBlockedReason,
       'pendingQuantity' => $pendingQuantity,
+      'pendingShipping' => round($pendingShipping, 2),
       'returns' => $returns,
     ];
   }
@@ -1062,12 +1068,13 @@ class TransactionSubscriber implements EventSubscriberInterface
       static fn (array $item): bool => $item['quantity'] > 0
         && !($skipCancelledItems && $item['lineItem']->getState()?->getTechnicalName() === self::RETURN_LINE_ITEM_STATE_CANCELLED)
     ));
-    if ($pendingItems === []) {
+    $pendingShipping = $this->getPendingReturnShipping($order, $orderReturn);
+    if ($pendingItems === [] && $pendingShipping <= 0.0) {
       return null;
     }
 
     $transactionId = $this->getRefundTransactionId($order, $returnId, \count($this->getReportedRefunds($order)[$returnId]['transactions'] ?? []) + 1);
-    $refundData = $this->calculatePartialRefundTax($order, $returnId, $transactionId, $pendingItems);
+    $refundData = $this->calculatePartialRefundTax($order, $returnId, $transactionId, $pendingItems, $pendingShipping);
     $response = $refundData ? $this->createPartialRefundTransaction($order, $refundData) : null;
 
     if (($response['success'] ?? false) === true) {
@@ -1076,7 +1083,7 @@ class TransactionSubscriber implements EventSubscriberInterface
         $quantities[$returnLineItem->getId()] = $quantity;
       }
 
-      $this->markRefundReported($order, $returnId, $transactionId, $quantities, json_decode((string) ($response['body'] ?? ''), true)['refund'] ?? null);
+      $this->markRefundReported($order, $returnId, $transactionId, $quantities, json_decode((string) ($response['body'] ?? ''), true)['refund'] ?? null, $pendingShipping);
 
       return $result + ['status' => 'sent', 'transactionId' => $transactionId];
     }
@@ -1267,6 +1274,37 @@ class TransactionSubscriber implements EventSubscriberInterface
     return $pendingItems;
   }
 
+  private function getReturnShipping(mixed $orderReturn): float
+  {
+    return round((float) ($orderReturn->getShippingCosts()?->getTotalPrice() ?? 0.0), 2);
+  }
+
+  private function getPendingReturnShipping(OrderEntity $order, mixed $orderReturn): float
+  {
+    $returnId = $orderReturn->getId();
+    $reportedRefund = $this->getReportedRefunds($order)[$returnId] ?? null;
+
+    if ($reportedRefund === null) {
+      return isset($this->getRefundCalculations($order)[$returnId]) ? 0.0 : $this->getReturnShipping($orderReturn);
+    }
+
+    if (!\is_array($reportedRefund['transactions'] ?? null)) {
+      return 0.0;
+    }
+
+    $reportedShipping = 0.0;
+    foreach ($reportedRefund['transactions'] as $transaction) {
+      $shipping = $transaction['shipping'] ?? $transaction['refund']['shipping'] ?? null;
+      if ($shipping === null) {
+        return 0.0;
+      }
+
+      $reportedShipping += abs((float) $shipping);
+    }
+
+    return max(0.0, round($this->getReturnShipping($orderReturn) - $reportedShipping, 2));
+  }
+
   private function mapRefundLineItems(OrderEntity $order, mixed $orderReturn, array $refundLineItems): array
   {
     $remaining = [];
@@ -1377,7 +1415,7 @@ class TransactionSubscriber implements EventSubscriberInterface
   /**
    * @param array|null $refund the refund as TaxJar stored it, kept so a later full refund can subtract it
    */
-  private function markRefundReported(OrderEntity $order, string $returnId, string $transactionId, array $quantities, mixed $refund = null): void
+  private function markRefundReported(OrderEntity $order, string $returnId, string $transactionId, array $quantities, mixed $refund = null, ?float $shipping = null): void
   {
     $reportedRefunds = $this->getReportedRefunds($order);
     $reportedRefund = $reportedRefunds[$returnId] ?? [];
@@ -1394,6 +1432,9 @@ class TransactionSubscriber implements EventSubscriberInterface
 
     $reportedAt = (new \DateTimeImmutable())->format(\DATE_ATOM);
     $transaction = ['transactionId' => $transactionId, 'reportedAt' => $reportedAt, 'lineItems' => $quantities];
+    if ($shipping !== null) {
+      $transaction['shipping'] = $shipping;
+    }
     if (\is_array($refund)) {
       $transaction['refund'] = [
         'amount' => $refund['amount'] ?? null,

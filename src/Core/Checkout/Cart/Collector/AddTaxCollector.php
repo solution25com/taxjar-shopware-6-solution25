@@ -116,7 +116,8 @@ class AddTaxCollector implements CartProcessorInterface
             if ($taxId) {
                 $taxIds[] = $taxId;
                 $taxProviderMapping[$taxId][] = [
-                    "id" => $product->getReferencedId(),
+                    "id" => $product->getId(),
+                    "_productId" => $product->getReferencedId(),
                     "quantity" => $product->getPrice()->getQuantity(),
                     "unit_price" => $product->getPrice()->getUnitPrice(),
                     "discount" => 0
@@ -232,8 +233,8 @@ class AddTaxCollector implements CartProcessorInterface
 
             if (!empty($lineItemsTax)) {
                 foreach ($products as $product) {
-                    $productId = $product->getReferencedId();
-                    if (!empty($lineItemsTax[$productId])) {
+                    $lineItemId = $product->getId();
+                    if (!empty($lineItemsTax[$lineItemId])) {
                         $calculatedTaxes = $product->getPrice()->getCalculatedTaxes();
                         $providerRate = isset($lineItemsTax['rate']) ? (float) $lineItemsTax['rate'] * 100 : 0;
                         $product->getPrice()->assign([
@@ -243,7 +244,7 @@ class AddTaxCollector implements CartProcessorInterface
                         ]);
 
                         foreach ($calculatedTaxes as $calculatedTax) {
-                            $calculatedTax->setTax((float) $lineItemsTax[$productId]);
+                            $calculatedTax->setTax((float) $lineItemsTax[$lineItemId]);
 
                             if ($providerRate > 0) {
                                 $calculatedTax->assign([

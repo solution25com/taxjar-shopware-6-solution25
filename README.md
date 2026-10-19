@@ -292,7 +292,7 @@ Each entry in `calculations`:
 | `response` | The unmodified `/v2/taxes` response body (`{"tax": {...}}`), or `null` when no usable response was received. |
 | `error` | The TaxJar error body or exception details for failed entries, otherwise `null`. |
 
-`response.tax.breakdown.line_items[].id` is the Shopware **product id** (the line item's `referencedId`).
+`response.tax.breakdown.line_items[].id` is the cart line item id. For normal product lines this is the Shopware **product id** (the line item's `referencedId`); when the same product is in the cart on separate lines (e.g. with product customizations), each line has its own id.
 
 Status rules:
 

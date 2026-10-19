@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v2.2.1] - 2026-10-19
+
+### This release includes
+- partial refunds report the shipping set on the return instead of an amount estimated from the returned products. A return without shipping reports no shipping
+- shipping added to a return after its items were reported is sent to TaxJar as its own refund, also when no items are pending
+- the `amount` of a refund sent to TaxJar includes the refunded shipping
+- each cart line is sent to TaxJar with its own id, so the same product on two cart lines is no longer rejected with "Line item IDs must be unique" and charged no tax
+- the TaxJar refunds card shows a shipping row per return with the shipping returned, sent and pending in the order currency, and the TaxJar response of the refund that included it
+
 ## [v2.2.0] - 2026-10-13
 
 ### This release includes

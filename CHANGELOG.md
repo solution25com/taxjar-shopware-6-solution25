@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.5.2] - 2026-11-25
+
+### Fixed
+- Compatibility with the latest Shopware Commercial: return tax calculation no longer fails with a TypeError when the return calculator is created. Older Commercial versions remain supported
+
 ## [v1.5.1] - 2026-10-19
 
 ### This release includes

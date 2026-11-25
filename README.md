@@ -67,8 +67,8 @@ Merchants can define custom tax rules, prioritize their execution order, and aut
   
   | Shopware | Branch | Plugin version |
   |---|---|---|
-  | 6.6.x | `main` | 1.4.1 |
-  | 6.7.x | `main-6.7` | 2.1.1 |
+  | 6.6.x | `main` | 1.5.2 |
+  | 6.7.x | `main-6.7` | 2.2.2 |
 
 
 ---

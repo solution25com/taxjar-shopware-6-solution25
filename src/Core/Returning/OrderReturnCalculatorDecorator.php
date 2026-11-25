@@ -2,7 +2,6 @@
 
 namespace solu1TaxJar\Core\Returning;
 
-use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Shopware\Commercial\ReturnManagement\Domain\Returning\OrderReturnCalculator;
 use Shopware\Commercial\ReturnManagement\Entity\OrderReturn\OrderReturnEntity;
@@ -10,7 +9,6 @@ use Shopware\Core\Checkout\Cart\Price\AmountCalculator;
 use Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator;
 use Shopware\Core\Checkout\Cart\Price\Struct\PriceCollection;
 use Shopware\Core\Checkout\Cart\Price\Struct\QuantityPriceDefinition;
-use Shopware\Core\Checkout\Cart\Tax\PercentageTaxRuleBuilder;
 use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRule;
 use Shopware\Core\Checkout\Cart\Tax\Struct\TaxRuleCollection;
 use Shopware\Core\Checkout\Order\OrderEntity;
@@ -27,12 +25,9 @@ class OrderReturnCalculatorDecorator extends OrderReturnCalculator
         private readonly EntityRepository $orderReturnRepository,
         private readonly QuantityPriceCalculator $calculator,
         private readonly AmountCalculator $amountCalculator,
-        PercentageTaxRuleBuilder $percentageTaxRuleBuilder,
-        ClockInterface $clock,
         private readonly LoggerInterface $logger,
         private readonly ShippingTaxRecovery $shippingTaxRecovery,
     ) {
-        parent::__construct($contextRestorer, $orderReturnRepository, $calculator, $amountCalculator, $percentageTaxRuleBuilder, $clock);
     }
 
     public function calculate(string $returnId, Context $context): void

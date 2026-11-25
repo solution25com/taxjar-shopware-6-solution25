@@ -15,8 +15,6 @@
             <argument type="service" id="order_return.repository"/>
             <argument type="service" id="Shopware\Core\Checkout\Cart\Price\QuantityPriceCalculator"/>
             <argument type="service" id="Shopware\Core\Checkout\Cart\Price\AmountCalculator"/>
-            <argument type="service" id="Shopware\Core\Checkout\Cart\Tax\PercentageTaxRuleBuilder"/>
-            <argument type="service" id="Psr\Clock\ClockInterface"/>
             <argument type="service" id="logger"/>
             <argument type="service" id="solu1TaxJar\Core\Returning\ShippingTaxRecovery"/>
         </service>
